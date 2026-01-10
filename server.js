@@ -227,6 +227,32 @@ app.post("/admin/toggle-license", async (req, res) => {
   }
 });
 
+
+app.post("/admin/delete-tenant-code", async (req, res) => {
+  try {
+    const code = String(req.body?.code || "").trim().toUpperCase();
+    if (!code) return res.status(400).send("code required");
+
+    await db.ref(`tenant_codes/${code}`).remove();
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).send(e?.message || "Server error");
+  }
+});
+
+app.post("/admin/delete-license", async (req, res) => {
+  try {
+    const licenseKey = String(req.body?.licenseKey || "").trim();
+    if (!licenseKey) return res.status(400).send("licenseKey required");
+
+    await db.ref(`licenses/${licenseKey}`).remove();
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).send(e?.message || "Server error");
+  }
+});
+
+
 // -------------------------------
 // PUBLIC API: Premium License Activation (B1)
 // -------------------------------
