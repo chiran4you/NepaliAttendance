@@ -3,178 +3,421 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>NepaliAttendance — Local Admin</title>
+  <title>NepaliAttendance Admin</title>
   <style>
-    :root { color-scheme: light; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background:#f6f7f9; }
-    header { padding: 18px 16px; background:#fff; border-bottom:1px solid #e5e7eb; }
-    header h1 { margin:0; font-size:18px; }
-    header p { margin:6px 0 0; color:#6b7280; font-size:13px; }
-    main { max-width: 820px; margin: 0 auto; padding: 16px; display:grid; gap: 12px; }
-    .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-    .row { display:grid; gap: 10px; grid-template-columns: 1fr 1fr; }
-    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
-    label { display:block; font-size:12px; color:#6b7280; margin-bottom:6px; }
-    input, textarea { width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; font-size:14px; outline:none; }
-    textarea { min-height: 72px; resize: vertical; }
-    .checks { display:flex; gap: 14px; flex-wrap:wrap; }
-    .checks label { display:flex; gap:8px; align-items:center; margin:0; color:#111827; font-size:14px; }
-    .btns { display:flex; gap: 10px; flex-wrap:wrap; }
-    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #111827; background:#111827; color:#fff; cursor:pointer; }
-    button.secondary { background:#fff; color:#111827; }
-    .muted { color:#6b7280; font-size:12px; margin-top:8px; }
-    pre { background:#0b1020; color:#e5e7eb; padding: 12px; border-radius: 12px; overflow:auto; }
-    .ok { color:#065f46; }
-    .err { color:#991b1b; }
+    :root{
+      --bg:#0b1220;
+      --text:#e8eefc;
+      --muted:#9fb0d0;
+      --border:rgba(255,255,255,.10);
+      --brand:#4f46e5;
+      --brand2:#6d28d9;
+      --good:#16a34a;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: radial-gradient(1200px 700px at 10% 10%, rgba(109,40,217,.35), transparent 55%),
+                  radial-gradient(1200px 700px at 90% 20%, rgba(79,70,229,.35), transparent 55%),
+                  linear-gradient(180deg, #070b15 0%, var(--bg) 100%);
+      color:var(--text);
+    }
+    header{
+      position:sticky; top:0;
+      backdrop-filter: blur(12px);
+      background: rgba(7,11,21,.55);
+      border-bottom:1px solid var(--border);
+      z-index:10;
+    }
+    .wrap{max-width:1100px; margin:0 auto; padding:16px;}
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+    .brand{display:flex; align-items:center; gap:12px;}
+    .logo{
+      width:40px; height:40px; border-radius:12px;
+      background: linear-gradient(135deg, var(--brand), var(--brand2));
+      box-shadow: 0 12px 30px rgba(79,70,229,.25);
+    }
+    .title{font-weight:900; font-size:16px; letter-spacing:.2px;}
+    .subtitle{font-size:12px; color:var(--muted); margin-top:2px;}
+    .btn{
+      appearance:none; border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color:var(--text);
+      padding:10px 12px; border-radius:12px;
+      font-weight:800; cursor:pointer;
+    }
+    .btn:hover{background: rgba(255,255,255,.10);}
+    .btnPrimary{
+      border:none;
+      background: linear-gradient(135deg, var(--brand), var(--brand2));
+      box-shadow: 0 14px 30px rgba(79,70,229,.20);
+    }
+    .btnPrimary:hover{filter: brightness(1.08);}
+    main{padding:16px 0 40px;}
+    .grid{display:grid; grid-template-columns:1fr; gap:14px;}
+    @media(min-width:960px){ .grid{grid-template-columns: 1fr 1fr;} }
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:14px;
+      box-shadow: 0 18px 40px rgba(0,0,0,.25);
+    }
+    .cardHead{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;}
+    .cardTitle{font-weight:900; font-size:14px;}
+    .chip{
+      font-size:12px; font-weight:900;
+      padding:6px 10px; border-radius:999px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color:var(--muted);
+    }
+    .row{display:flex; gap:10px; flex-wrap:wrap;}
+    .field{flex:1; min-width:220px;}
+    label{display:block; font-size:12px; color:var(--muted); font-weight:900; margin:8px 0 6px;}
+    input{
+      width:100%;
+      padding:11px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(0,0,0,.18);
+      color:var(--text);
+      outline:none;
+    }
+    input:focus{border-color: rgba(79,70,229,.8); box-shadow:0 0 0 3px rgba(79,70,229,.25);}
+    .check{
+      display:flex; align-items:center; gap:8px;
+      margin-top:8px; color:var(--muted); font-weight:800; font-size:12px;
+    }
+    .check input{width:auto}
+    .hint{margin-top:10px; font-size:12px; color:var(--muted); line-height:1.4}
+    .result{
+      margin-top:10px;
+      border-radius:14px;
+      border:1px dashed rgba(255,255,255,.18);
+      padding:10px;
+      background: rgba(0,0,0,.18);
+      font-size:12px;
+      color:var(--text);
+      display:none;
+    }
+    .result.show{display:block;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;}
+    .table{
+      width:100%;
+      border-collapse: collapse;
+      margin-top:10px;
+      font-size:12px;
+      overflow:hidden;
+      border-radius:14px;
+      border:1px solid var(--border);
+    }
+    .table th, .table td{
+      padding:10px 10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      vertical-align:top;
+    }
+    .table th{
+      text-align:left;
+      color:var(--muted);
+      font-weight:900;
+      background: rgba(255,255,255,.04);
+    }
+    .pill{
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      font-weight:900;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.05);
+    }
+    .pillGood{border-color: rgba(22,163,74,.35); background: rgba(22,163,74,.12); color:#bbf7d0;}
+    .pillBad{border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.12); color:#fecaca;}
+    .pillWarn{border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.12); color:#fde68a;}
+    .actions{display:flex; gap:8px; align-items:center; justify-content:flex-end;}
+    .smallBtn{
+      padding:8px 10px; border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color:var(--text);
+      font-weight:900;
+      cursor:pointer;
+      font-size:12px;
+    }
+    .smallBtn:hover{background: rgba(255,255,255,.10);}
   </style>
 </head>
 <body>
-  <header>
-    <h1>NepaliAttendance — Local Admin</h1>
-    <p>Create tenant codes in your Firebase Realtime Database (local tool). Runs on <code>localhost</code>.</p>
-  </header>
+<header>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <div class="title">NepaliAttendance Admin</div>
+          <div class="subtitle">Tenant codes • Premium licenses • RTDB</div>
+        </div>
+      </div>
+      <div class="row" style="gap:10px">
+        <button class="btn" onclick="location.reload()">Refresh</button>
+        <a class="btn" href="/logout" style="text-decoration:none; display:inline-flex; align-items:center;">Logout</a>
+      </div>
+    </div>
+  </div>
+</header>
 
-  <main>
+<main class="wrap">
+  <div class="grid">
     <section class="card">
-      <h2 style="margin:0 0 10px; font-size:16px;">Create Tenant Code</h2>
-
-      <form id="createForm">
-        <div class="row">
-          <div>
-            <label for="tenantId">Tenant ID (internal)</label>
-            <input id="tenantId" name="tenantId" placeholder="e.g. greenvalley" required />
-          </div>
-          <div>
-            <label for="schoolName">School Name</label>
-            <input id="schoolName" name="schoolName" placeholder="e.g. Green Valley School" required />
-          </div>
+      <div class="cardHead">
+        <div>
+          <div class="cardTitle">Create Tenant Code</div>
+          <div class="hint">Used by the Android app to load school name/address in the header (offline cached).</div>
         </div>
+        <span class="chip">RTDB: tenant_codes</span>
+      </div>
 
-        <div class="row" style="margin-top:10px;">
-          <div>
-            <label for="schoolAddress">School Address (optional)</label>
-            <input id="schoolAddress" name="schoolAddress" placeholder="e.g. Kathmandu, Nepal" />
-          </div>
-          <div>
-            <label for="codePrefix">Code prefix (optional)</label>
-            <input id="codePrefix" name="codePrefix" value="NPL" />
-          </div>
+      <div class="row">
+        <div class="field">
+          <label>School Name</label>
+          <input id="schoolName" placeholder="e.g. Shree Jana Jyoti Secondary School" />
         </div>
+        <div class="field">
+          <label>School Address</label>
+          <input id="schoolAddress" placeholder="e.g. Itahari-06, Sunsari" />
+        </div>
+      </div>
 
-        <div style="margin-top:10px;">
-          <label>Premium features</label>
-          <div class="checks">
-            <label><input type="checkbox" id="csvExportEnabled" /> CSV Export</label>
-            <label><input type="checkbox" id="smsAlertsEnabled" /> SMS Alerts</label>
-          </div>
-          <p class="muted">These flags are stored in RTDB under <code>features</code>. Your app can gate premium UI based on them.</p>
-        </div>
+      <div class="row">
+        <label class="check"><input id="csvExportEnabled" type="checkbox" /> CSV Export Enabled (Premium)</label>
+        <label class="check"><input id="smsAlertsEnabled" type="checkbox" /> SMS Alerts Enabled (Premium)</label>
+      </div>
 
-        <div class="btns" style="margin-top:12px;">
-          <button type="submit">Create Code</button>
-          <button type="button" class="secondary" id="copyBtn" disabled>Copy Code</button>
-          <button type="button" class="secondary" id="resetBtn">Reset</button>
-        </div>
-      </form>
+      <div class="row" style="margin-top:12px">
+        <button class="btn btnPrimary" onclick="createTenant()">Create Tenant Code</button>
+        <button class="btn" onclick="loadTenants()">Load Recent</button>
+      </div>
+
+      <div id="tenantResult" class="result"></div>
+
+      <table class="table" id="tenantTable">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>School</th>
+            <th>Tenant ID</th>
+            <th>Features</th>
+            <th class="actions">Copy</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <section class="card">
-      <h2 style="margin:0 0 10px; font-size:16px;">Result</h2>
-      <div id="status" class="muted">Fill the form and click “Create Code”.</div>
-      <pre id="output">{}</pre>
+      <div class="cardHead">
+        <div>
+          <div class="cardTitle">Create Premium License</div>
+          <div class="hint">Used by the app Settings → Premium → Activate Online.</div>
+        </div>
+        <span class="chip">RTDB: licenses</span>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Bind to Tenant ID (optional)</label>
+          <input id="licenseTenantId" placeholder="Paste tenantId to lock to one school (recommended)" />
+        </div>
+        <div class="field">
+          <label>Max Devices</label>
+          <input id="maxDevices" type="number" min="1" value="1" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Expires At (optional, epoch ms)</label>
+          <input id="expiresAt" placeholder="Leave empty for lifetime. Example: 1760000000000" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn btnPrimary" onclick="createLicense()">Create License</button>
+        <button class="btn" onclick="loadLicenses()">Load Recent</button>
+      </div>
+
+      <div id="licenseResult" class="result"></div>
+
+      <table class="table" id="licenseTable">
+        <thead>
+          <tr>
+            <th>License Key</th>
+            <th>Tenant</th>
+            <th>Status</th>
+            <th>Devices</th>
+            <th class="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="hint">
+        Tip: In the app, you can check both tenant feature flags (CSV/SMS) and premium entitlement:
+        <span class="mono">premiumActivated && tenant.features.csvExportEnabled</span>.
+      </div>
     </section>
+  </div>
+</main>
 
-    <section class="card">
-      <h2 style="margin:0 0 10px; font-size:16px;">Notes</h2>
-      <ul style="margin:0; padding-left:18px; color:#374151; font-size:13px; line-height:1.5;">
-        <li>This page talks to your local admin server at <code>http://localhost:3001</code>.</li>
-        <li>It uses Basic Auth. You’ll set <code>ADMIN_USER</code> / <code>ADMIN_PASS</code> in <code>server.js</code>.</li>
-        <li>In production, use unguessable codes and keep RTDB rules locked for clients.</li>
-      </ul>
-    </section>
-  </main>
+<script>
+  async function post(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: new URLSearchParams(body).toString(),
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(txt || ("Request failed: " + res.status));
+    try { return JSON.parse(txt); } catch { return txt; }
+  }
 
-  <script>
-    const form = document.getElementById("createForm");
-    const statusEl = document.getElementById("status");
-    const outEl = document.getElementById("output");
-    const copyBtn = document.getElementById("copyBtn");
-    const resetBtn = document.getElementById("resetBtn");
+  async function get(url) {
+    const res = await fetch(url);
+    const txt = await res.text();
+    if (!res.ok) throw new Error(txt || ("Request failed: " + res.status));
+    try { return JSON.parse(txt); } catch { return txt; }
+  }
 
-    let lastCode = "";
+  function showResult(id, html) {
+    const el = document.getElementById(id);
+    el.innerHTML = html;
+    el.classList.add("show");
+  }
 
-    function setStatus(text, kind) {
-      statusEl.textContent = text;
-      statusEl.className = kind === "ok" ? "ok" : kind === "err" ? "err" : "muted";
+  function copyText(text) {
+    navigator.clipboard.writeText(text);
+  }
+
+  function safe(v){ return (v === null || v === undefined) ? "" : String(v); }
+
+  async function createTenant() {
+    try {
+      const schoolName = document.getElementById("schoolName").value.trim();
+      const schoolAddress = document.getElementById("schoolAddress").value.trim();
+      const csvExportEnabled = document.getElementById("csvExportEnabled").checked ? "on" : "";
+      const smsAlertsEnabled = document.getElementById("smsAlertsEnabled").checked ? "on" : "";
+
+      const data = await post("/admin/create-tenant-code", {
+        schoolName, schoolAddress, csvExportEnabled, smsAlertsEnabled
+      });
+
+      showResult("tenantResult",
+        `<b>Created ✅</b><br/>
+         Tenant Code: <span class="mono">${data.code}</span><br/>
+         Tenant ID: <span class="mono">${data.tenantId}</span>`
+      );
+      await loadTenants();
+    } catch (e) {
+      showResult("tenantResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
     }
+  }
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      setStatus("Creating code…", "");
-      copyBtn.disabled = true;
-      lastCode = "";
+  async function loadTenants() {
+    const table = document.querySelector("#tenantTable tbody");
+    table.innerHTML = "";
+    try {
+      const data = await get("/admin/list-tenant-codes");
+      (data.items || []).slice(0, 20).forEach((t) => {
+        const feats = t.features || {};
+        const f1 = feats.csvExportEnabled ? `<span class="pill pillGood">CSV</span>` : `<span class="pill">CSV</span>`;
+        const f2 = feats.smsAlertsEnabled ? `<span class="pill pillGood">SMS</span>` : `<span class="pill">SMS</span>`;
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td class="mono">${safe(t.code)}</td>
+          <td>
+            <div style="font-weight:900">${safe(t.schoolName)}</div>
+            <div style="color:var(--muted); font-size:11px">${safe(t.schoolAddress)}</div>
+          </td>
+          <td class="mono">${safe(t.tenantId)}</td>
+          <td>${f1} ${f2}</td>
+          <td class="actions">
+            <button class="smallBtn" onclick="copyText('${safe(t.code)}')">Copy Code</button>
+            <button class="smallBtn" onclick="copyText('${safe(t.tenantId)}')">Copy TenantId</button>
+          </td>
+        `;
+        table.appendChild(row);
+      });
+    } catch (e) {
+      showResult("tenantResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    }
+  }
 
-      const body = {
-        tenantId: document.getElementById("tenantId").value.trim(),
-        schoolName: document.getElementById("schoolName").value.trim(),
-        schoolAddress: document.getElementById("schoolAddress").value.trim(),
-        codePrefix: document.getElementById("codePrefix").value.trim() || "NPL",
-        features: {
-          csvExportEnabled: document.getElementById("csvExportEnabled").checked,
-          smsAlertsEnabled: document.getElementById("smsAlertsEnabled").checked,
-        },
-      };
+  async function createLicense() {
+    try {
+      const tenantId = document.getElementById("licenseTenantId").value.trim();
+      const maxDevices = document.getElementById("maxDevices").value.trim();
+      const expiresAt = document.getElementById("expiresAt").value.trim();
 
-      try {
-        const res = await fetch("/admin/create-tenant-code", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+      const data = await post("/admin/create-license", { tenantId, maxDevices, expiresAt });
 
-        const text = await res.text();
-        let json = null;
-        try { json = JSON.parse(text); } catch { json = { raw: text }; }
+      showResult("licenseResult",
+        `<b>Created ✅</b><br/>
+         License Key: <span class="mono">${data.licenseKey}</span>
+         <button class="smallBtn" style="margin-left:10px" onclick="copyText('${data.licenseKey}')">Copy</button>`
+      );
+      await loadLicenses();
+    } catch (e) {
+      showResult("licenseResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    }
+  }
 
-        outEl.textContent = JSON.stringify(json, null, 2);
+  function statusPill(active) {
+    if (active) return `<span class="pill pillGood">ACTIVE</span>`;
+    return `<span class="pill pillBad">DISABLED</span>`;
+  }
 
-        if (!res.ok || json.ok === false) {
-          setStatus(json.message || "Failed to create tenant code.", "err");
-          return;
-        }
+  async function toggleLicense(licenseKey, active) {
+    try {
+      await post("/admin/toggle-license", { licenseKey, active: String(active) });
+      await loadLicenses();
+    } catch (e) {
+      showResult("licenseResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    }
+  }
 
-        lastCode = json.code || "";
-        if (lastCode) {
-          setStatus("Success! Share this School Code with the client: " + lastCode, "ok");
-          copyBtn.disabled = false;
-        } else {
-          setStatus("Created, but no code returned. Check server.", "err");
-        }
-      } catch (err) {
-        setStatus("Network error. Is the local admin server running?", "err");
-        outEl.textContent = JSON.stringify({ error: String(err) }, null, 2);
-      }
-    });
+  async function loadLicenses() {
+    const table = document.querySelector("#licenseTable tbody");
+    table.innerHTML = "";
+    try {
+      const data = await get("/admin/list-licenses");
+      (data.items || []).slice(0, 20).forEach((l) => {
+        const row = document.createElement("tr");
+        const devices = `${safe(l.usedCount)}/${safe(l.maxDevices)}`;
+        row.innerHTML = `
+          <td class="mono">${safe(l.licenseKey)}</td>
+          <td class="mono">${safe(l.tenantId || "")}</td>
+          <td>${statusPill(!!l.active)}</td>
+          <td><span class="pill ${l.usedCount >= l.maxDevices ? "pillWarn" : ""}">${devices}</span></td>
+          <td class="actions">
+            <button class="smallBtn" onclick="copyText('${safe(l.licenseKey)}')">Copy</button>
+            ${l.active
+              ? `<button class="smallBtn" onclick="toggleLicense('${safe(l.licenseKey)}', false)">Disable</button>`
+              : `<button class="smallBtn" onclick="toggleLicense('${safe(l.licenseKey)}', true)">Enable</button>`
+            }
+          </td>
+        `;
+        table.appendChild(row);
+      });
+    } catch (e) {
+      showResult("licenseResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    }
+  }
 
-    copyBtn.addEventListener("click", async () => {
-      if (!lastCode) return;
-      try {
-        await navigator.clipboard.writeText(lastCode);
-        setStatus("Copied code to clipboard: " + lastCode, "ok");
-      } catch {
-        // fallback
-        prompt("Copy this code:", lastCode);
-      }
-    });
-
-    resetBtn.addEventListener("click", () => {
-      form.reset();
-      document.getElementById("codePrefix").value = "NPL";
-      setStatus("Form reset.", "");
-      outEl.textContent = "{}";
-      lastCode = "";
-      copyBtn.disabled = true;
-    });
-  </script>
+  loadTenants();
+  loadLicenses();
+</script>
 </body>
 </html>
