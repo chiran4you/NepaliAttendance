@@ -291,10 +291,17 @@ app.post("/api/license/activate", async (req, res) => {
       await usedRef.child(deviceId).set({ activatedAt: now() });
     }
 
+    const rawExpiresAt = lic?.expiresAt;
+    const expiresAtNum = rawExpiresAt === null || rawExpiresAt === undefined ? null : Number(rawExpiresAt);
+    const expiresAt = Number.isFinite(expiresAtNum) && expiresAtNum > 0 ? expiresAtNum : null;
+
     const entitlement = {
       premium: true,
-      plan: "premium",
-      expiresAt: lic.expiresAt ?? null,
+      plan: String(lic?.plan || "premium"),
+      tenantId,
+      deviceId,
+      licenseKey,
+      expiresAt, // epoch ms or null
       lastVerifiedAt: now(),
     };
 
