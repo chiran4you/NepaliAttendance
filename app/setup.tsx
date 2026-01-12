@@ -1,6 +1,15 @@
 // app/setup.tsx
 import React, { useCallback, useState } from "react";
-import { View, Text, TextInput, Pressable, Alert, StyleSheet, Platform, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  Alert,
+  StyleSheet,
+  Platform,
+  ActivityIndicator,
+} from "react-native";
 import { Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -9,18 +18,11 @@ import { Colors } from "../src/constants/colors";
 import { APP_CONFIG } from "../src/constants/appConfig";
 import { useTenant } from "../src/tenant/TenantContext";
 
-/**
- * Setup screen:
- * - User enters school/tenant code
- * - App fetches tenant config from RTDB (public read)
- * - Saves locally in AsyncStorage via TenantProvider
- */
 export default function SetupScreen() {
   const { loading, tenant, setTenant } = useTenant();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // If tenant exists, go to tabs
   if (!loading && tenant) {
     return <Redirect href="/(tabs)/classes" />;
   }
@@ -32,27 +34,65 @@ export default function SetupScreen() {
       return;
     }
 
+    const rtdbBase = APP_CONFIG.RTDB_URL?.replace(/\/+$/, "");
+    if (!rtdbBase) {
+      Alert.alert("Config error", "RTDB_URL is missing. Check src/constants/appConfig.ts");
+      return;
+    }
+
     setBusy(true);
     try {
-      // RTDB REST API requires .json
-      const url = `${APP_CONFIG.RTDB_URL.replace(/\/+$/, "")}/tenant_codes/${encodeURIComponent(tenantCode)}.json`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Unable to verify code. Please try again.");
-      const data = await res.json();
+      const codeUrl = `${rtdbBase}/tenant_codes/${encodeURIComponent(tenantCode)}.json`;
+      const res = await fetch(codeUrl);
 
-      if (!data?.active) {
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {}
+
+      if (!res.ok) {
+        Alert.alert(
+          "Activation failed",
+          `Server replied ${res.status}.\n\nURL:\n${codeUrl}\n\nBody:\n${text || "(empty)"}`
+        );
+        return;
+      }
+
+      if (!data) {
+        Alert.alert(
+          "Invalid code",
+          `Code not found in RTDB.\n\nURL checked:\n${codeUrl}\n\nTip: open the same URL in browser to verify.`
+        );
+        return;
+      }
+
+      if (!data.active) {
         Alert.alert("Invalid code", "This code is inactive or not found.");
         return;
       }
 
       const tenantId = data.tenantId;
-      if (!tenantId) throw new Error("Tenant ID missing in code record.");
+      if (!tenantId) {
+        Alert.alert("Activation failed", "Tenant ID missing in code record.");
+        return;
+      }
 
-      // Fetch tenant config (school name/address)
-      const cfgUrl = `${APP_CONFIG.RTDB_URL.replace(/\/+$/, "")}/tenants/${encodeURIComponent(tenantId)}.json`;
+      const cfgUrl = `${rtdbBase}/tenants/${encodeURIComponent(tenantId)}.json`;
       const cfgRes = await fetch(cfgUrl);
-      if (!cfgRes.ok) throw new Error("Unable to load school info.");
-      const cfg = await cfgRes.json();
+      const cfgText = await cfgRes.text();
+      let cfg: any = null;
+      try {
+        cfg = cfgText ? JSON.parse(cfgText) : null;
+      } catch {}
+
+      if (!cfgRes.ok) {
+        Alert.alert(
+          "Activation failed",
+          `Unable to load school info (${cfgRes.status}).\n\nURL:\n${cfgUrl}\n\nBody:\n${cfgText || "(empty)"}`
+        );
+        return;
+      }
 
       const schoolName = String(cfg?.schoolName ?? cfg?.name ?? "School");
       const schoolAddress = String(cfg?.schoolAddress ?? cfg?.address ?? "");
@@ -65,7 +105,7 @@ export default function SetupScreen() {
     } finally {
       setBusy(false);
     }
-  }, [code, setTenant]);
+  }, [code, loading, setTenant]);
 
   return (
     <Screen>
@@ -98,11 +138,7 @@ export default function SetupScreen() {
               pressed && { opacity: 0.9 },
             ]}
           >
-            {busy ? (
-              <ActivityIndicator />
-            ) : (
-              <Text style={styles.btnText}>Activate</Text>
-            )}
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Activate</Text>}
           </Pressable>
 
           <Text style={styles.hint}>
@@ -128,12 +164,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     ...Platform.select({
       android: { elevation: 3 },
-      ios: { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 6 },
+      },
       default: {},
     }),
   },
   title: { fontSize: 18, fontWeight: "900", color: Colors.textPrimary },
-  subtitle: { textAlign: "center", color: Colors.textSecondary, fontWeight: "800", lineHeight: 18, maxWidth: 320 },
+  subtitle: {
+    textAlign: "center",
+    color: Colors.textSecondary,
+    fontWeight: "800",
+    lineHeight: 18,
+    maxWidth: 320,
+  },
 
   card: {
     backgroundColor: Colors.surface,
@@ -144,7 +191,12 @@ const styles = StyleSheet.create({
     gap: 10,
     ...Platform.select({
       android: { elevation: 2 },
-      ios: { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 8 } },
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 8 },
+      },
       default: {},
     }),
   },
