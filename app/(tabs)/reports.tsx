@@ -6,6 +6,7 @@ import {
   Pressable,
   FlatList,
   Alert,
+  Share,
   StyleSheet,
   Platform,
   Modal,
@@ -267,11 +268,18 @@ export default function ReportsScreen() {
 
       // On Android/iOS this should exist. It can be null on web.
       if (!dir) {
-        throw new Error(
-          Platform.OS === "web"
-            ? "File export is not supported on web. Please run on an Android device."
-            : "File system is not available. Make sure expo-file-system is installed."
+        // Some custom dev-clients can run without expo-file-system linked.
+        // Fallback: share as plain text (works without file system).
+        await Share.share(
+          {
+            title: "Monthly Attendance CSV",
+            message: csv,
+          },
+          {
+            dialogTitle: "Export Monthly Attendance CSV",
+          }
         );
+        return;
       }
 
       const fileUri = dir + fileName;
