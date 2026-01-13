@@ -5,19 +5,25 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "nepaliattendance",
+    "scheme": "attendanceapp",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": true
     },
     "android": {
-      "package": "com.crackone.nepaliattendance",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -36,16 +42,8 @@
       "expo-sqlite"
     ],
     "experiments": {
-      "typedRoutes": true
-    },
-    "newArchEnabled": true,
-    "extra": {
-      "owner": "Crackone",
-      "appType": "school-attendance",
-      "router": {},
-      "eas": {
-        "projectId": "9672aa6a-1583-45d4-b259-87c411eef6c2"
-      }
+      "typedRoutes": true,
+      "reactCompiler": true
     }
   }
 }
