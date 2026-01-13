@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "attendanceapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.iamchiran.nepaliattendance"
     },
     "web": {
       "output": "static",
@@ -44,6 +45,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9672aa6a-1583-45d4-b259-87c411eef6c2"
+      }
     }
   }
 }
