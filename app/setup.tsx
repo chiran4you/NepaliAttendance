@@ -16,19 +16,50 @@ import { Ionicons } from "@expo/vector-icons";
 import Screen from "../src/components/Screen";
 import { Colors } from "../src/constants/colors";
 import { APP_CONFIG } from "../src/constants/appConfig";
-import { useTenant } from "../src/tenant/TenantContext";
+import { TenantFeatures, useTenant } from "../src/tenant/TenantContext";
+
+/**
+ * Setup screen (tenant activation)
+ *
+ * Reads from: tenant_codes/<CODE>
+ * Expected (your current RTDB structure):
+ * tenant_codes/<CODE> = {
+ *   tenantId: "...",
+ *   schoolName: "...",
+ *   schoolAddress: "...",
+ *   createdAt: 123,
+ *   active: true | "true" | 1 | (optional)
+ *   features: { csvExportEnabled: true/false, smsAlertsEnabled: true/false } (optional)
+ * }
+ */
+function isTruthy(v: any) {
+  if (v === true) return true;
+  if (v === false) return false;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "yes" || s === "y") return true;
+    if (s === "false" || s === "0" || s === "no" || s === "n") return false;
+  }
+  return false;
+}
+
+function toFeatures(v: any): TenantFeatures {
+  const f = v && typeof v === "object" ? v : {};
+  return {
+    csvExportEnabled: Boolean(f.csvExportEnabled),
+    smsAlertsEnabled: Boolean(f.smsAlertsEnabled),
+  };
+}
 
 export default function SetupScreen() {
+  // ✅ Hooks first
   const { loading, tenant, setTenant } = useTenant();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (!loading && tenant) {
-    return <Redirect href="/(tabs)/classes" />;
-  }
-
   const activate = useCallback(async () => {
-    const tenantCode = code.trim();
+    const tenantCode = code.trim().toUpperCase();
     if (!tenantCode) {
       Alert.alert("Enter school code", "Please enter the activation code provided by your school.");
       return;
@@ -60,44 +91,31 @@ export default function SetupScreen() {
       }
 
       if (!data) {
-        Alert.alert(
-          "Invalid code",
-          `Code not found in RTDB.\n\nURL checked:\n${codeUrl}\n\nTip: open the same URL in browser to verify.`
-        );
+        Alert.alert("Invalid code", `Code not found.\n\nURL checked:\n${codeUrl}`);
         return;
       }
 
-      if (!data.active) {
+      const tenantId = String(data?.tenantId ?? "").trim();
+      if (!tenantId) {
+        Alert.alert("Activation failed", "tenantId is missing in tenant_codes record.");
+        return;
+      }
+
+      // If active is missing, treat as active (many admin panels omit it)
+      const active =
+        data.active === undefined || data.active === null ? true : isTruthy(data.active);
+
+      if (!active) {
         Alert.alert("Invalid code", "This code is inactive or not found.");
         return;
       }
 
-      const tenantId = data.tenantId;
-      if (!tenantId) {
-        Alert.alert("Activation failed", "Tenant ID missing in code record.");
-        return;
-      }
+      const schoolName = String(data?.schoolName ?? data?.name ?? "School").trim() || "School";
+      const schoolAddress = String(data?.schoolAddress ?? data?.address ?? "").trim();
 
-      const cfgUrl = `${rtdbBase}/tenants/${encodeURIComponent(tenantId)}.json`;
-      const cfgRes = await fetch(cfgUrl);
-      const cfgText = await cfgRes.text();
-      let cfg: any = null;
-      try {
-        cfg = cfgText ? JSON.parse(cfgText) : null;
-      } catch {}
+      const features = toFeatures(data?.features);
 
-      if (!cfgRes.ok) {
-        Alert.alert(
-          "Activation failed",
-          `Unable to load school info (${cfgRes.status}).\n\nURL:\n${cfgUrl}\n\nBody:\n${cfgText || "(empty)"}`
-        );
-        return;
-      }
-
-      const schoolName = String(cfg?.schoolName ?? cfg?.name ?? "School");
-      const schoolAddress = String(cfg?.schoolAddress ?? cfg?.address ?? "");
-
-      await setTenant({ tenantId, schoolName, schoolAddress });
+      await setTenant({ tenantId, schoolName, schoolAddress, features });
 
       Alert.alert("Activated", "School activated successfully.");
     } catch (e: any) {
@@ -105,7 +123,12 @@ export default function SetupScreen() {
     } finally {
       setBusy(false);
     }
-  }, [code, loading, setTenant]);
+  }, [code, setTenant]);
+
+  // ✅ Redirect after hooks
+  if (!loading && tenant) {
+    return <Redirect href="/(tabs)/classes" />;
+  }
 
   return (
     <Screen>
@@ -123,7 +146,7 @@ export default function SetupScreen() {
           <TextInput
             value={code}
             onChangeText={setCode}
-            placeholder="e.g. NA-XXXX-XXXX-XXXX"
+            placeholder="e.g. 85A4AB"
             placeholderTextColor={Colors.muted}
             autoCapitalize="characters"
             style={styles.input}
@@ -138,7 +161,11 @@ export default function SetupScreen() {
               pressed && { opacity: 0.9 },
             ]}
           >
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Activate</Text>}
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.btnText}>Activate</Text>
+            )}
           </Pressable>
 
           <Text style={styles.hint}>

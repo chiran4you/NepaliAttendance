@@ -64,6 +64,7 @@ function isValidBs(bs: string) {
 
 export default function AttendanceScreen() {
   const { tenant } = useTenant();
+  const smsAllowedForSchool = !!tenant?.features?.smsAlertsEnabled;
   if (!tenant) return null;
 
   const [classes, setClasses] = useState<ClassItem[]>([]);
@@ -124,23 +125,46 @@ export default function AttendanceScreen() {
     }
   };
 
-  const refreshClasses = async () => {
+  const refreshClasses = async (): Promise<{ rows: ClassItem[]; selectedId: string }> => {
     const rows = await listClasses(tenant.tenantId);
     setClasses(rows);
 
-    if (!selectedClassId && rows.length > 0) setSelectedClassId(rows[0].id);
+    let nextSelectedId = selectedClassId;
+
+    if (!nextSelectedId && rows.length > 0) nextSelectedId = rows[0].id;
 
     // If selected class was deleted, fall back to first
-    if (selectedClassId && !rows.some((c) => c.id === selectedClassId)) {
-      setSelectedClassId(rows[0]?.id ?? "");
+    if (nextSelectedId && !rows.some((c) => c.id === nextSelectedId)) {
+      nextSelectedId = rows[0]?.id ?? "";
     }
+
+    if (nextSelectedId !== selectedClassId) setSelectedClassId(nextSelectedId);
+
+    return { rows, selectedId: nextSelectedId };
   };
 
-  // ✅ Fix: refresh classes whenever Attendance tab is focused
+  // ✅ Refresh classes + students whenever Attendance tab is focused
+  // This ensures newly added students/classes show up immediately when returning from other tabs.
   useFocusEffect(
     useCallback(() => {
-      refreshClasses();
-    }, [tenant.tenantId])
+      let alive = true;
+
+      (async () => {
+        const { selectedId } = await refreshClasses();
+        if (!alive) return;
+
+        // Refresh students + attendance for the currently selected date
+        if (selectedId) {
+          await refreshStudents(selectedId);
+          if (!alive) return;
+          await loadForDate(false, selectedId);
+        }
+      })();
+
+      return () => {
+        alive = false;
+      };
+    }, [tenant.tenantId, selectedClassId, dateBs])
   );
 
   const refreshStudents = async (classId: string) => {
@@ -218,8 +242,9 @@ export default function AttendanceScreen() {
     setStatusByStudentId(next);
   };
 
-  const loadForDate = async (showAlerts: boolean) => {
-    if (!selectedClassId) {
+  const loadForDate = async (showAlerts: boolean, classId?: string) => {
+    const cid = classId ?? selectedClassId;
+    if (!cid) {
       if (showAlerts) Alert.alert("No class selected", "Select a class first.");
       return;
     }
@@ -230,13 +255,13 @@ export default function AttendanceScreen() {
       return;
     }
 
-    const rows = await refreshStudents(selectedClassId);
+    const rows = await refreshStudents(cid);
     if (rows.length === 0) {
       if (showAlerts) Alert.alert("No students", "Add students to this class first.");
       return;
     }
 
-    const session = await getSessionByBsDate(tenant.tenantId, selectedClassId, bs);
+    const session = await getSessionByBsDate(tenant.tenantId, cid, bs);
     if (!session) {
       setDefaultAllPresent(rows);
       if (showAlerts)
@@ -338,6 +363,11 @@ export default function AttendanceScreen() {
 
   const onToggleSms = async (next: boolean) => {
     if (!selectedClassId) return;
+
+    if (!smsAllowedForSchool) {
+      Alert.alert("SMS not enabled", "SMS Alerts are disabled for this school.");
+      return;
+    }
 
     const ok = await isPremiumValid();
     if (!ok) {
@@ -560,6 +590,9 @@ export default function AttendanceScreen() {
                       <Text style={styles.smsSub}>
                         Per class toggle • Auto-send when online
                       </Text>
+                      {!smsAllowedForSchool ? (
+                        <Text style={styles.smsHint}>SMS Alerts are disabled for this school.</Text>
+                      ) : null}
                     </View>
 
                     <View style={styles.smsToggleRow}>
@@ -567,6 +600,7 @@ export default function AttendanceScreen() {
                       <Switch
                         value={smsOn}
                         onValueChange={onToggleSms}
+                        disabled={!smsAllowedForSchool}
                         trackColor={{ false: Colors.border, true: Colors.primary }}
                         thumbColor={Platform.OS === "android" ? "#fff" : undefined}
                       />
@@ -764,6 +798,7 @@ const styles = StyleSheet.create({
   smsTopRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   smsTitle: { fontSize: 13, fontWeight: "900", color: Colors.textPrimary },
   smsSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  smsHint: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary, marginTop: 6 },
   smsToggleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   smsToggleText: { fontSize: 12, fontWeight: "900", color: Colors.textSecondary },
 

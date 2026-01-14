@@ -54,6 +54,34 @@ export async function addStudentAutoRoll(s: Omit<StudentItem, "rollNo">) {
   );
 }
 
+
+
+export async function updateStudent(input: {
+  id: string;
+  tenantId: string;
+  name: string;
+  dob?: string | null;
+  parentName?: string | null;
+  phone?: string | null;
+  address?: string | null;
+}) {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE students
+     SET name = ?, dob = ?, parentName = ?, phone = ?, address = ?
+     WHERE id = ? AND tenantId = ?`,
+    [
+      input.name,
+      input.dob ?? null,
+      input.parentName ?? null,
+      input.phone ?? null,
+      input.address ?? null,
+      input.id,
+      input.tenantId,
+    ]
+  );
+}
+
 export async function deleteStudent(id: string, tenantId: string) {
   const db = await getDb();
   await db.runAsync(`DELETE FROM students WHERE id = ? AND tenantId = ?`, [id, tenantId]);

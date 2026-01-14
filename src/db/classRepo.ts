@@ -34,10 +34,25 @@ export async function addClass(c: ClassItem) {
   );
 }
 
-export async function deleteClass(id: string, tenantId: string) {
+export async function updateClass(input: {
+  id: string;
+  tenantId: string;
+  name: string;
+  section?: string | null;
+}) {
   const db = await getDb();
   await db.runAsync(
-    `DELETE FROM classes WHERE id = ? AND tenantId = ?`,
-    [id, tenantId]
+    `UPDATE classes
+     SET name = ?, section = ?
+     WHERE id = ? AND tenantId = ?`,
+    [input.name, input.section ?? null, input.id, input.tenantId]
   );
+}
+
+export async function deleteClass(id: string, tenantId: string) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM classes WHERE id = ? AND tenantId = ?`, [
+    id,
+    tenantId,
+  ]);
 }

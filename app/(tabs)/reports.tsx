@@ -6,7 +6,6 @@ import {
   Pressable,
   FlatList,
   Alert,
-  Share,
   StyleSheet,
   Platform,
   Modal,
@@ -86,6 +85,7 @@ export default function ReportsScreen() {
   const router = useRouter();
 
   const tenantId = tenant?.tenantId ?? null;
+  const csvAllowedForSchool = !!tenant?.features?.csvExportEnabled;
 
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState<string | null>(null);
@@ -209,6 +209,11 @@ export default function ReportsScreen() {
   async function exportCsv() {
     if (!tenantId || !selectedClass) return;
 
+    if (!csvAllowedForSchool) {
+      Alert.alert("Export not available", "CSV export is disabled for this school.");
+      return;
+    }
+
     if (!premiumOk) {
       Alert.alert(
         "Premium required",
@@ -261,43 +266,73 @@ export default function ReportsScreen() {
         ),
       ].join("\n");
 
-      const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
+      
+
+      // ✅ Add UTF-8 BOM so Excel opens Nepali text correctly
+      const csvWithBom = "\ufeff" + csv;
+const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
       const safeSection = String(section).replace(/[^a-z0-9_-]+/gi, "_");
-      const fileName = `NepaliAttendance_${safeClass}${safeSection ? "_" + safeSection : ""}_${monthBs}.csv`;
-      const dir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+      const ym = monthBs; // "YYYY-MM" in BS
+      const fileName = `NepaliAttendance_${safeClass}${safeSection ? `_${safeSection}` : ""}_${ym}.csv`;
 
-      // On Android/iOS this should exist. It can be null on web.
-      if (!dir) {
-        // Some custom dev-clients can run without expo-file-system linked.
-        // Fallback: share as plain text (works without file system).
-        await Share.share(
-          {
-            title: "Monthly Attendance CSV",
-            message: csv,
-          },
-          {
+      // ✅ Android: let user choose a folder (Storage Access Framework)
+      if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
+        const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (perm.granted) {
+          const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            perm.directoryUri,
+            fileName,
+            "text/csv"
+          );
+          await FileSystem.writeAsStringAsync(fileUri, csvWithBom, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+          Alert.alert("Exported", "CSV saved to the folder you selected.");
+          return;
+        }
+        // If user cancels folder selection, we fall back to sharing (creates a real .csv too).
+      }
+
+      // ✅ Fallback: write into cache/document directory, then share
+      const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (baseDir) {
+        const fileUri = baseDir + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, csvWithBom, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: "text/csv",
             dialogTitle: "Export Monthly Attendance CSV",
-          }
-        );
+            UTI: "public.comma-separated-values-text",
+          });
+          return;
+        }
+
+        // Sharing not available: at least tell user where it was saved.
+        Alert.alert("Saved", `CSV saved to app storage.\n\nPath:\n${fileUri}`);
         return;
       }
 
-      const fileUri = dir + fileName;
-      await FileSystem.writeAsStringAsync(fileUri, csv, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      // ❌ If we reached here, something is wrong: no writable directory was available.
+      // We avoid sharing as plain text because users need a real CSV file.
+      const diag = [
+        `Platform: ${Platform.OS}`,
+        `StorageAccessFramework: ${!!FileSystem.StorageAccessFramework}`,
+        `cacheDirectory: ${String(FileSystem.cacheDirectory)}`,
+        `documentDirectory: ${String(FileSystem.documentDirectory)}`,
+        `SharingAvailable: ${await Sharing.isAvailableAsync().catch(() => false)}`,
+      ].join("\n");
 
-      if (!(await Sharing.isAvailableAsync())) {
-        Alert.alert("Saved", `CSV saved to: ${fileUri}\n\nSharing is not available on this device.`);
-        return;
-      }
-
-      await Sharing.shareAsync(fileUri, {
-        mimeType: "text/csv",
-        dialogTitle: "Export Monthly Attendance CSV",
-        UTI: "public.comma-separated-values-text",
-      });
-    } catch (e: any) {
+      Alert.alert(
+        "Export failed",
+        "Could not find a writable folder to create a CSV file.\n\n" +
+          "Fix: install expo-file-system + expo-sharing, then rebuild the app (APK/dev build).\n\n" +
+          diag
+      );
+      return;
+} catch (e: any) {
       Alert.alert("Export failed", e?.message ?? "Could not export CSV");
     }
   }
@@ -364,13 +399,13 @@ export default function ReportsScreen() {
                 onPress={exportCsv}
                 style={[
                   styles.exportBtn,
-                  premiumOk ? styles.exportBtnActive : styles.exportBtnLocked,
+                  (premiumOk && csvAllowedForSchool) ? styles.exportBtnActive : styles.exportBtnLocked,
                 ]}
               >
                 <Ionicons
-                  name={premiumOk ? "download-outline" : "lock-closed-outline"}
+                  name={(premiumOk && csvAllowedForSchool) ? "download-outline" : "lock-closed-outline"}
                   size={18}
-                  color={premiumOk ? "#FFFFFF" : Colors.textSecondary}
+                  color={(premiumOk && csvAllowedForSchool) ? "#FFFFFF" : Colors.textSecondary}
                 />
                 <Text
                   style={[
@@ -378,10 +413,14 @@ export default function ReportsScreen() {
                     premiumOk ? { color: "#FFFFFF" } : { color: Colors.textSecondary },
                   ]}
                 >
-                  Export CSV
+                  {(premiumOk && csvAllowedForSchool) ? "Export CSV" : "Export Locked"}
                 </Text>
               </Pressable>
             </View>
+
+            {!csvAllowedForSchool ? (
+              <Text style={styles.exportHint}>CSV export is disabled for this school.</Text>
+            ) : null}
 
             <View style={styles.controls}>
               <Pressable style={styles.pickerBtn} onPress={() => setPickerOpen(true)}>
@@ -569,6 +608,7 @@ const styles = StyleSheet.create({
   exportBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   exportBtnLocked: { backgroundColor: "#FFFFFF", borderColor: Colors.border },
   exportText: { fontWeight: "900", fontSize: 12 },
+  exportHint: { marginTop: 6, marginBottom: 6, color: Colors.textSecondary, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
   controls: {
     borderWidth: 1,

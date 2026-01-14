@@ -18,6 +18,7 @@ import { Colors } from "../../src/constants/colors";
 import { useTenant } from "../../src/tenant/TenantContext";
 import {
   addClass,
+  updateClass,
   deleteClass,
   listClasses,
   countClasses,
@@ -31,6 +32,7 @@ export default function ClassesScreen() {
   const [name, setName] = useState("");
   const [section, setSection] = useState("");
   const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [editing, setEditing] = useState<ClassItem | null>(null);
 
   if (!tenant) return null;
 
@@ -43,7 +45,19 @@ export default function ClassesScreen() {
     refresh();
   }, [tenant.tenantId]);
 
-  const onAdd = async () => {
+  const startEdit = (item: ClassItem) => {
+    setEditing(item);
+    setName(item.name ?? "");
+    setSection(item.section ? String(item.section) : "");
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setName("");
+    setSection("");
+  };
+
+  const onAddOrSave = async () => {
     const n = name.trim();
     const s = section.trim();
 
@@ -52,6 +66,20 @@ export default function ClassesScreen() {
       return;
     }
 
+    // EDIT MODE => UPDATE
+    if (editing) {
+      await updateClass({
+        id: editing.id,
+        tenantId: tenant.tenantId,
+        name: n,
+        section: s ? s : null,
+      });
+      cancelEdit();
+      refresh();
+      return;
+    }
+
+    // ADD MODE => INSERT (with limit check)
     const existing = await countClasses(tenant.tenantId);
     if (existing >= MAX_CLASSES) {
       Alert.alert(
@@ -74,20 +102,35 @@ export default function ClassesScreen() {
     refresh();
   };
 
-  const onDelete = (item: ClassItem) => {
+  const confirmDelete = (item: ClassItem) => {
+    Alert.alert("Delete class?", `${item.name}${item.section ? ` - ${item.section}` : ""}`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          // if you're deleting the class currently being edited, exit edit mode
+          if (editing?.id === item.id) cancelEdit();
+
+          await deleteClass(item.id, tenant.tenantId);
+          refresh();
+        },
+      },
+    ]);
+  };
+
+  const onLongPressItem = (item: ClassItem) => {
     Alert.alert(
-      "Delete class?",
+      "Class options",
       `${item.name}${item.section ? ` - ${item.section}` : ""}`,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Edit", onPress: () => startEdit(item) },
         {
           text: "Delete",
           style: "destructive",
-          onPress: async () => {
-            await deleteClass(item.id, tenant.tenantId);
-            refresh();
-          },
+          onPress: () => confirmDelete(item),
         },
+        { text: "Cancel", style: "cancel" },
       ]
     );
   };
@@ -105,6 +148,18 @@ export default function ClassesScreen() {
         </View>
 
         <View style={styles.card}>
+          {editing ? (
+            <View style={styles.editBanner}>
+              <Text style={styles.editBannerText}>
+                Editing:{" "}
+                <Text style={{ fontWeight: "900", color: Colors.textPrimary }}>
+                  {editing.name}
+                  {editing.section ? ` (${editing.section})` : ""}
+                </Text>
+              </Text>
+            </View>
+          ) : null}
+
           <TextInput
             value={name}
             onChangeText={setName}
@@ -121,20 +176,47 @@ export default function ClassesScreen() {
           />
 
           <Pressable
-            onPress={onAdd}
-            disabled={classes.length >= MAX_CLASSES}
+            onPress={onAddOrSave}
+            disabled={!editing && classes.length >= MAX_CLASSES}
             style={({ pressed }) => [
               styles.primaryBtn,
-              classes.length >= MAX_CLASSES && { opacity: 0.5 },
+              !editing && classes.length >= MAX_CLASSES && { opacity: 0.5 },
               pressed && { opacity: 0.85 },
             ]}
           >
             <Text style={styles.primaryBtnText}>
-              {classes.length >= MAX_CLASSES
-                ? "Class limit reached"
-                : "Add Class"}
+              {editing
+                ? "Save Changes"
+                : classes.length >= MAX_CLASSES
+                  ? "Class limit reached"
+                  : "Add Class"}
             </Text>
           </Pressable>
+
+          {/* Attractive, tight action row when editing */}
+          {editing ? (
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={cancelEdit}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <Text style={styles.secondaryBtnText}>Cancel Edit</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => confirmDelete(editing)}
+                style={({ pressed }) => [
+                  styles.dangerBtn,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <Text style={styles.dangerBtnText}>Delete</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <FlatList
@@ -142,19 +224,14 @@ export default function ClassesScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ gap: 12, paddingTop: 4 }}
           renderItem={({ item }) => (
-            <Pressable
-              onLongPress={() => onDelete(item)}
-              style={styles.card}
-            >
+            <Pressable onLongPress={() => onLongPressItem(item)} style={styles.card}>
               <Text style={styles.className}>
                 {item.name} {item.section ? `(${item.section})` : ""}
               </Text>
-              <Text style={styles.subtleSmall}>Long-press to delete</Text>
+              <Text style={styles.subtleSmall}>Long-press for options</Text>
             </Pressable>
           )}
-          ListEmptyComponent={
-            <Text style={styles.subtle}>No classes yet.</Text>
-          }
+          ListEmptyComponent={<Text style={styles.subtle}>No classes yet.</Text>}
         />
       </View>
     </Screen>
@@ -201,6 +278,20 @@ const styles = StyleSheet.create({
     }),
   },
 
+  editBanner: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+    backgroundColor: "#EEF2FF",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  editBannerText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.textSecondary,
+  },
+
   input: {
     borderWidth: 1,
     borderColor: Colors.border,
@@ -230,6 +321,39 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: "#fff",
     fontWeight: "800",
+  },
+
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+  },
+  secondaryBtnText: {
+    fontWeight: "900",
+    color: Colors.textPrimary,
+  },
+
+  dangerBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  dangerBtnText: {
+    fontWeight: "900",
+    color: "#B42318",
   },
 
   className: {

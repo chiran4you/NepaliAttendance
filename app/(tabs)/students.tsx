@@ -22,6 +22,7 @@ import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, ClassItem } from "../../src/db/classRepo";
 import {
   addStudentAutoRoll,
+  updateStudent,
   deleteStudent,
   listStudents,
   StudentItem,
@@ -36,6 +37,8 @@ export default function StudentsScreen() {
 
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [nextRoll, setNextRoll] = useState<number>(1);
+
+  const [editingStudent, setEditingStudent] = useState<StudentItem | null>(null);
 
   // form fields
   const [name, setName] = useState("");
@@ -107,23 +110,31 @@ export default function StudentsScreen() {
       return;
     }
 
-    await addStudentAutoRoll({
-      id: randomUUID(),
-      tenantId: tenant.tenantId,
-      classId: selectedClassId,
-      name: n,
-      dob: dob.trim() ? dob.trim() : null,
-      parentName: parentName.trim() ? parentName.trim() : null,
-      phone: phone.trim() ? phone.trim() : null,
-      address: address.trim() ? address.trim() : null,
-      createdAt: Date.now(),
-    });
+    if (editingStudent) {
+      await updateStudent({
+        id: editingStudent.id,
+        tenantId: tenant.tenantId,
+        name: n,
+        dob: dob.trim() ? dob.trim() : null,
+        parentName: parentName.trim() ? parentName.trim() : null,
+        phone: phone.trim() ? phone.trim() : null,
+        address: address.trim() ? address.trim() : null,
+      });
+    } else {
+      await addStudentAutoRoll({
+        id: randomUUID(),
+        tenantId: tenant.tenantId,
+        classId: selectedClassId,
+        name: n,
+        dob: dob.trim() ? dob.trim() : null,
+        parentName: parentName.trim() ? parentName.trim() : null,
+        phone: phone.trim() ? phone.trim() : null,
+        address: address.trim() ? address.trim() : null,
+        createdAt: Date.now(),
+      });
+    }
 
-    setName("");
-    setDob("");
-    setParentName("");
-    setPhone("");
-    setAddress("");
+    clearForm();
     await refreshStudents(selectedClassId);
   };
 
@@ -134,6 +145,7 @@ export default function StudentsScreen() {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
+          if (editingStudent?.id === s.id) cancelEdit();
           await deleteStudent(s.id, tenant.tenantId);
           await refreshStudents(selectedClassId);
         },
@@ -151,6 +163,25 @@ export default function StudentsScreen() {
   };
 
   const clearForm = () => {
+    setName("");
+    setDob("");
+    setParentName("");
+    setPhone("");
+    setAddress("");
+    setEditingStudent(null);
+  };
+
+  const startEdit = (st: StudentItem) => {
+    setEditingStudent(st);
+    setName(st.name ?? "");
+    setDob(st.dob ? String(st.dob) : "");
+    setParentName(st.parentName ? String(st.parentName) : "");
+    setPhone(st.phone ? String(st.phone) : "");
+    setAddress(st.address ? String(st.address) : "");
+  };
+
+  const cancelEdit = () => {
+    setEditingStudent(null);
     setName("");
     setDob("");
     setParentName("");
@@ -217,15 +248,15 @@ export default function StudentsScreen() {
             {/* Add student form */}
             <View style={styles.card}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>Add Student</Text>
+                <Text style={styles.cardTitle}>{editingStudent ? "Edit Student" : "Add Student"}</Text>
                 <Pressable
-                  onPress={clearForm}
+                  onPress={editingStudent ? cancelEdit : clearForm}
                   style={({ pressed }) => [
                     styles.ghostBtn,
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text style={styles.ghostBtnText}>Clear</Text>
+                  <Text style={styles.ghostBtnText}>{editingStudent ? "Cancel" : "Clear"}</Text>
                 </Pressable>
               </View>
 
@@ -280,8 +311,32 @@ export default function StudentsScreen() {
                   pressed && { opacity: 0.9 },
                 ]}
               >
-                <Text style={styles.primaryBtnText}>Save Student</Text>
+                <Text style={styles.primaryBtnText}>{editingStudent ? "Save Changes" : "Save Student"}</Text>
               </Pressable>
+
+              {editingStudent ? (
+                <View style={styles.actionRow}>
+                  <Pressable
+                    onPress={cancelEdit}
+                    style={({ pressed }) => [
+                      styles.secondaryBtn,
+                      pressed && { opacity: 0.9 },
+                    ]}
+                  >
+                    <Text style={styles.secondaryBtnText}>Cancel Edit</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => onDeleteStudent(editingStudent)}
+                    style={({ pressed }) => [
+                      styles.dangerBtn,
+                      pressed && { opacity: 0.9 },
+                    ]}
+                  >
+                    <Text style={styles.dangerBtnText}>Delete</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
             {/* List header */}
@@ -297,7 +352,13 @@ export default function StudentsScreen() {
         }
         renderItem={({ item }) => (
           <Pressable
-            onLongPress={() => onDeleteStudent(item)}
+            onLongPress={() => {
+              Alert.alert("Student options", `${item.rollNo}. ${item.name}`, [
+                { text: "Edit", onPress: () => startEdit(item) },
+                { text: "Delete", style: "destructive", onPress: () => onDeleteStudent(item) },
+                { text: "Cancel", style: "cancel" },
+              ]);
+            }}
             style={({ pressed }) => [
               styles.studentCard,
               pressed && { opacity: 0.92 },
@@ -530,6 +591,38 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Colors.textSecondary,
     fontSize: 12,
+  },
+
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+  },
+  secondaryBtnText: {
+    fontWeight: "900",
+    color: Colors.textPrimary,
+  },
+  dangerBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  dangerBtnText: {
+    fontWeight: "900",
+    color: "#B42318",
   },
 
   studentCard: {
