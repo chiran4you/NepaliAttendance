@@ -13,7 +13,7 @@ export const APP_CONFIG = {
   API_BASE_URL: "https://nepaliattendance.onrender.com",
   
   // NEW: SMS goes to VPS
-  SMS_API_BASE_URL: "http://67.215.232.20:3001"
+  SMS_API_BASE_URL: "http://67.215.232.20:3001",
   
   APP_NAME: "NepaliAttendance",
 };
