@@ -11,4 +11,9 @@ export const APP_CONFIG = {
   // ✅ Your backend (Render) URL for premium activation
   // Example: "https://nepaliattendance.onrender.com"
   API_BASE_URL: "https://nepaliattendance.onrender.com",
+  
+  // NEW: SMS goes to VPS
+  SMS_API_BASE_URL: "http://67.215.232.20:3001"
+  
+  APP_NAME: "NepaliAttendance",
 };

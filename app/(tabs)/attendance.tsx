@@ -418,7 +418,11 @@ export default function AttendanceScreen() {
       studentId: s.id,
       bsDate: bs,
       phone: String(s.phone || "").trim(),
-      message: `Dear Parent/Guardian, ${s.name} (Roll ${s.rollNo}) is ABSENT on ${bs} (BS). - ${tenant.schoolName}`,
+      message: smsTemplate
+        .replaceAll("{studentName}", String(s.name ?? ""))
+        .replaceAll("{rollNo}", String(s.rollNo ?? ""))
+        .replaceAll("{bsDate}", String(bs))
+        .replaceAll("{schoolName}", String(tenant.schoolName ?? "")),
     }));
 
     await enqueueSmsBatch(msgs);
@@ -454,13 +458,8 @@ export default function AttendanceScreen() {
           tenantId: tenant.tenantId,
           deviceId: tenant.deviceId || "unknown-device",
           items: filtered.map((m) => ({
-            id: m.id,
-            tenantId: m.tenantId,
-            classId: m.classId,
-            studentId: m.studentId,
-            bsDate: m.bsDate,
-            phone: m.phone,
-            message: m.message,
+            to: m.phone,
+            text: m.message,
           })),
         }),
       });
