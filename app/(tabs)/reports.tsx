@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Platform,
   Modal,
+  Share,
 } from "react-native";
 import NepaliDate from "nepali-date-converter";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,7 +27,9 @@ import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, type ClassItem } from "../../src/db/classRepo";
 import {
   getMonthlyAttendanceSummary,
+  getStudentMonthlyAttendanceDetails,
   type MonthlyStudentSummary,
+  type StudentMonthlyAttendanceDetail,
 } from "../../src/db/reportRepo";
 
 function todayBs(): string {
@@ -91,12 +94,19 @@ export default function ReportsScreen() {
   const [classId, setClassId] = useState<string | null>(null);
 
   const [monthBs, setMonthBs] = useState<string>(monthFromBsDate(todayBs()));
+  const [pickedDate, setPickedDate] = useState<string>(todayBs());
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [rows, setRows] = useState<MonthlyStudentSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [premiumOk, setPremiumOk] = useState(false);
+
+  // Student-wise daily details (tap a student card)
+  const [selectedStudent, setSelectedStudent] = useState<MonthlyStudentSummary | null>(null);
+  const [studentDetails, setStudentDetails] = useState<StudentMonthlyAttendanceDetail[]>([]);
+  const [studentDetailsOpen, setStudentDetailsOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   // ✅ when we come back to Reports, force a reload
   const [refreshTick, setRefreshTick] = useState(0);
@@ -201,12 +211,60 @@ export default function ReportsScreen() {
     return { sumPresent: sp, sumAbsent: sa, sumTotal: st, overallRate: rate };
   }, [rows]);
 
+  
+
+  const { presentDates, absentDates, unmarkedDates } = useMemo(() => {
+    const p: string[] = [];
+    const a: string[] = [];
+    const u: string[] = [];
+    for (const d of studentDetails) {
+      if (d.status === "P") p.push(d.dateBs);
+      else if (d.status === "A") a.push(d.dateBs);
+      else u.push(d.dateBs);
+    }
+    return { presentDates: p, absentDates: a, unmarkedDates: u };
+  }, [studentDetails]);
+
   const onPickDate = (picked: string) => {
+    setPickedDate(picked);
     setMonthBs(monthFromBsDate(picked));
     setPickerOpen(false);
   };
 
-  async function exportCsv() {
+  
+  const openStudentDetails = useCallback(
+    async (student: MonthlyStudentSummary) => {
+      if (!tenantId || !classId) return;
+
+      setSelectedStudent(student);
+      setStudentDetailsOpen(true);
+      setDetailsLoading(true);
+      try {
+        const detail = await getStudentMonthlyAttendanceDetails({
+          tenantId,
+          classId,
+          studentId: student.studentId,
+          monthBs,
+        });
+        setStudentDetails(detail);
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to load student details");
+        setStudentDetails([]);
+      } finally {
+        setDetailsLoading(false);
+      }
+    },
+    [tenantId, classId, monthBs]
+  );
+
+async function exportCsv() {
+	  Alert.alert(
+  "FS Check",
+  `cache=${String(FileSystem.cacheDirectory)}\n` +
+  `doc=${String(FileSystem.documentDirectory)}\n` +
+  `SAF=${!!FileSystem.StorageAccessFramework}`
+);
+
     if (!tenantId || !selectedClass) return;
 
     if (!csvAllowedForSchool) {
@@ -249,7 +307,7 @@ export default function ReportsScreen() {
 
       const csv = [
         header.map(csvEscape).join(","),
-        ...rows.map((r) =>
+        rows.map((r) =>
           [
             monthBs,
             className,
@@ -266,11 +324,7 @@ export default function ReportsScreen() {
         ),
       ].join("\n");
 
-      
-
-      // ✅ Add UTF-8 BOM so Excel opens Nepali text correctly
-      const csvWithBom = "\ufeff" + csv;
-const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
+      const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
       const safeSection = String(section).replace(/[^a-z0-9_-]+/gi, "_");
       const ym = monthBs; // "YYYY-MM" in BS
       const fileName = `NepaliAttendance_${safeClass}${safeSection ? `_${safeSection}` : ""}_${ym}.csv`;
@@ -284,20 +338,20 @@ const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
             fileName,
             "text/csv"
           );
-          await FileSystem.writeAsStringAsync(fileUri, csvWithBom, {
+          await FileSystem.writeAsStringAsync(fileUri, csv, {
             encoding: FileSystem.EncodingType.UTF8,
           });
           Alert.alert("Exported", "CSV saved to the folder you selected.");
           return;
         }
-        // If user cancels folder selection, we fall back to sharing (creates a real .csv too).
+        // If user cancels folder selection, we fall back to sharing.
       }
 
       // ✅ Fallback: write into cache/document directory, then share
       const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
       if (baseDir) {
         const fileUri = baseDir + fileName;
-        await FileSystem.writeAsStringAsync(fileUri, csvWithBom, {
+        await FileSystem.writeAsStringAsync(fileUri, csv, {
           encoding: FileSystem.EncodingType.UTF8,
         });
 
@@ -344,14 +398,13 @@ const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
       {pickerOpen ? (
-        <Modal
-          visible={pickerOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPickerOpen(false)}
-        >
-          <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+        <Modal transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setPickerOpen(false)}
+            />
+            <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Select a BS date</Text>
                 <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
@@ -360,21 +413,83 @@ const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
               </View>
 
               <CalendarPicker
-                visible={true}
-                onClose={() => setPickerOpen(false)}
+                selectedDate={pickedDate}
                 onDateSelect={onPickDate}
                 brandColor={Colors.primary}
                 // @ts-ignore
                 language="nepali"
+                onClose={() => setPickerOpen(false)}
               />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
-              <Text style={styles.modalHint}>
-                We group by month using the picked BS date (YYYY-MM).
-              </Text>
+      {/* Student-wise monthly summary (daily present/absent) */}
+      {studentDetailsOpen ? (
+        <Modal
+          visible={studentDetailsOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setStudentDetailsOpen(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setStudentDetailsOpen(false)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Student Monthly Summary</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {selectedStudent
+                      ? `${selectedStudent.name} (Roll ${selectedStudent.rollNo})`
+                      : "Student"}
+                    {"  "}•{"  "}
+                    {monthBs}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setStudentDetailsOpen(false)} style={styles.modalClose}>
+                  <Ionicons name="close" size={18} color={Colors.textPrimary} />
+                </Pressable>
+              </View>
+
+              {detailsLoading ? (
+                <Text style={styles.modalHint}>Loading</Text>
+              ) : (
+                <View style={styles.studentDetailWrap}>
+                  <View style={styles.detailColumn}>
+                    <Text style={styles.detailTitle}>Present ({presentDates.length})</Text>
+                    {presentDates.length ? (
+                      <Text style={styles.detailText}>{presentDates.join(", ")}</Text>
+                    ) : (
+                      <Text style={styles.detailEmpty}>No present days</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.detailColumn}>
+                    <Text style={styles.detailTitle}>Absent ({absentDates.length})</Text>
+                    {absentDates.length ? (
+                      <Text style={styles.detailText}>{absentDates.join(", ")}</Text>
+                    ) : (
+                      <Text style={styles.detailEmpty}>No absent days</Text>
+                    )}
+                  </View>
+
+                  {unmarkedDates.length ? (
+                    <View style={styles.detailColumn}>
+                      <Text style={styles.detailTitle}>Unmarked ({unmarkedDates.length})</Text>
+                      <Text style={styles.detailText}>{unmarkedDates.join(", ")}</Text>
+                    </View>
+                  ) : null}
+
+                  <Text style={styles.modalHint}>
+                    Tip: This shows exactly which BS dates were marked present/absent for the selected month.
+                  </Text>
+                </View>
+              )}
             </Pressable>
           </Pressable>
         </Modal>
       ) : null}
+
 
       {/* ✅ Make FlatList own the whole scroll area so swipe works anywhere */}
       <FlatList
@@ -533,7 +648,7 @@ const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <Pressable style={styles.card} onPress={() => openStudentDetails(item)}>
             <View style={styles.cardTop}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardName} numberOfLines={1}>
@@ -580,7 +695,7 @@ const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
                 <Text style={styles.statLabel}>Total</Text>
               </View>
             </View>
-          </View>
+          </Pressable>
         )}
       />
     </Screen>
@@ -776,7 +891,71 @@ const styles = StyleSheet.create({
   statValue: { fontWeight: "900", color: Colors.textPrimary, fontSize: 14 },
   statLabel: { marginTop: 2, fontWeight: "800", color: Colors.textSecondary, fontSize: 11 },
 
+
+
+  // --- Modals (month picker + student details) ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  modalTitle: { fontSize: 14, fontWeight: "900", color: Colors.textPrimary },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+  },
+  modalHint: { marginTop: 8, fontSize: 12, color: Colors.textSecondary, fontWeight: "800" },
+
+  detailMeta: { marginTop: 4, fontSize: 12, color: Colors.textSecondary, fontWeight: "800" },
+  detailRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  detailCol: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+    padding: 10,
+    gap: 6,
+  },
+  detailColTitle: { fontSize: 13, fontWeight: "900", color: Colors.textPrimary },
+  detailPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#FFFFFF",
+  },
+  detailPillText: { fontSize: 12, fontWeight: "900", color: Colors.textSecondary },
+
   empty: { alignItems: "center", paddingVertical: 36, gap: 8, marginHorizontal: 16 },
   emptyTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
   emptySubtitle: { textAlign: "center", color: Colors.textSecondary, marginTop: 2 },
+  modalSubtitle: { fontSize: 12, color: Colors.textSecondary, fontWeight: "800", marginTop: 2 },
+  studentDetailWrap: { gap: 10 },
+  detailColumn: { borderWidth: 1, borderColor: Colors.border, borderRadius: 14, padding: 10, backgroundColor: "#FFFFFF", gap: 6 },
+  detailTitle: { fontSize: 12, fontWeight: "900", color: Colors.textPrimary },
+  detailText: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary, lineHeight: 18 },
+  detailEmpty: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary },
 });

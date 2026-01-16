@@ -72,3 +72,47 @@ export async function getMonthlyAttendanceSummary(params: {
     };
   });
 }
+
+export type StudentMonthlyAttendanceDetail = {
+  dateBs: string; // YYYY-MM-DD
+  status: "P" | "A" | "U"; // U = unmarked / no record
+};
+
+/**
+ * Student-wise daily attendance list for a BS month.
+ * monthBs format: "YYYY-MM" (e.g. "2082-01")
+ */
+export async function getStudentMonthlyAttendanceDetails(params: {
+  tenantId: string;
+  classId: string;
+  studentId: string;
+  monthBs: string;
+}): Promise<StudentMonthlyAttendanceDetail[]> {
+  const { tenantId, classId, studentId, monthBs } = params;
+  const db = await getDb();
+
+  const like = `${monthBs}-%`;
+
+  const rows = await db.getAllAsync<{ dateBs: string; status: string | null }>(
+    `
+    SELECT
+      asess.dateBs AS dateBs,
+      ar.status AS status
+    FROM attendance_sessions asess
+    LEFT JOIN attendance_records ar
+      ON ar.sessionId = asess.id
+     AND ar.studentId = ?
+    WHERE asess.tenantId = ?
+      AND asess.classId = ?
+      AND asess.dateBs LIKE ?
+    ORDER BY asess.dateBs ASC;
+    `,
+    [studentId, tenantId, classId, like]
+  );
+
+  return rows.map((r) => {
+    const s = String(r.status ?? "").toUpperCase();
+    const status = s === "P" ? "P" : s === "A" ? "A" : "U";
+    return { dateBs: r.dateBs, status };
+  });
+}
