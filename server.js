@@ -636,18 +636,24 @@ app.post("/api/license/activate", async (req, res) => {
   try {
     const tenantId = String(req.body?.tenantId || "").trim();
     const deviceId = String(req.body?.deviceId || "").trim();
-    const licenseKey = String(req.body?.licenseKey || "").trim();
+    const licenseKeyRaw = String(req.body?.licenseKey || "").trim();
+    const licenseKey = licenseKeyRaw.toUpperCase();
 
     if (!tenantId || !deviceId || !licenseKey) {
-      return res.status(400).json({ error: "Missing tenantId, deviceId, or licenseKey" });
+      return res.status(400).json({ ok: false, error: "Missing tenantId, deviceId, or licenseKey" });
+    }
+
+    // Basic format guard (matches NA-032C-24D3-5B3A)
+    if (!/^NA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(licenseKey)) {
+      return res.status(400).json({ ok: false, error: "Invalid license code format" });
     }
 
     const licRef = db.ref(`licenses/${licenseKey}`);
     const licSnap = await licRef.get();
-    if (!licSnap.exists()) return res.status(404).json({ error: "Invalid license key" });
+    if (!licSnap.exists()) return res.status(404).json({ ok: false, error: "Invalid license key" });
 
     const lic = licSnap.val();
-    if (!lic?.active) return res.status(403).json({ error: "License is not active" });
+    if (!lic?.active) return res.status(403).json({ ok: false, error: "License is not active" });
 
     // Validate expiry online too (offline expiry still handled by the app using expiresAt)
     const rawExpiresAt = lic?.expiresAt;
@@ -656,15 +662,16 @@ app.post("/api/license/activate", async (req, res) => {
     const expiresAt = Number.isFinite(expiresAtNum) && expiresAtNum > 0 ? expiresAtNum : null;
 
     if (expiresAt !== null && now() > expiresAt) {
-      return res.status(403).json({ error: "License has expired", expiresAt });
+      return res.status(403).json({ ok: false, error: "License has expired", expiresAt });
     }
 
-    // Bind / validate tenant
-    if (lic.tenantId && String(lic.tenantId) !== tenantId) {
-      return res.status(403).json({ error: "License belongs to a different tenant" });
+    // Validate tenant binding (DO NOT auto-bind to avoid abuse)
+    if (!lic?.tenantId) {
+      return res.status(403).json({ ok: false, error: "License is not bound to a tenant" });
     }
-    // If license isn't bound yet, bind on first activation
-    if (!lic.tenantId) await licRef.child("tenantId").set(tenantId);
+    if (String(lic.tenantId) !== tenantId) {
+      return res.status(403).json({ ok: false, error: "License belongs to a different tenant" });
+    }
 
     const maxDevicesNum = Number(lic.maxDevices || 1);
     const maxDevices = Number.isFinite(maxDevicesNum) && maxDevicesNum > 0 ? maxDevicesNum : 1;
@@ -674,16 +681,21 @@ app.post("/api/license/activate", async (req, res) => {
     const used = usedSnap.val() || {};
 
     if (!used[deviceId] && Object.keys(used).length >= maxDevices) {
-      return res
-        .status(403)
-        .json({ error: "Device limit reached", used: Object.keys(used).length, maxDevices });
+      return res.status(403).json({
+        ok: false,
+        error: "Device limit reached",
+        used: Object.keys(used).length,
+        maxDevices,
+      });
     }
+
     // Register device (idempotent)
     if (!used[deviceId]) {
       await usedRef.child(deviceId).set({ activatedAt: now() });
     }
 
     const entitlement = {
+      ok: true,
       premium: true,
       plan: String(lic?.plan || "premium"),
       tenantId,
@@ -696,7 +708,7 @@ app.post("/api/license/activate", async (req, res) => {
     await db.ref(`entitlements/${tenantId}/${deviceId}`).set(entitlement);
     return res.json(entitlement);
   } catch (e) {
-    return res.status(500).json({ error: e?.message || "Server error" });
+    return res.status(500).json({ ok: false, error: e?.message || "Server error" });
   }
 });
 
