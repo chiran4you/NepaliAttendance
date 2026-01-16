@@ -34,6 +34,11 @@ export default function SettingsScreen() {
   const [licenseKey, setLicenseKey] = useState("");
   const [activating, setActivating] = useState(false);
 
+  const expired = entitlement?.expiresAt != null && Date.now() > entitlement.expiresAt;
+  const isLicenseActive = premiumEnabled && !expired;
+  // Disable "Activate Online" once activated; enable again if expired offline
+  const canActivate = !loading && !activating && !isLicenseActive;
+
   // Reset modal state
   const [resetOpen, setResetOpen] = useState(false);
   const [resetText, setResetText] = useState("");
