@@ -1,5 +1,5 @@
 // app/(tabs)/settings.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as SQLite from "expo-sqlite";
 import Constants from "expo-constants";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
@@ -25,8 +24,6 @@ import { usePremium } from "../../src/premium/usePremium";
 
 const DB_NAME = "nepaliattendance.db";
 
-const SMS_TEMPLATE_KEY = (tenantId: string) => `smsTemplate:${tenantId}`;
-
 export default function SettingsScreen() {
   const { tenant, logoutTenant } = useTenant();
   const tenantId = tenant?.tenantId ?? null;
@@ -36,23 +33,6 @@ export default function SettingsScreen() {
 
   const [licenseKey, setLicenseKey] = useState("");
   const [activating, setActivating] = useState(false);
-
-  const [smsTemplate, setSmsTemplate] = useState<string>(
-    "Dear Parent, your child {studentName} is absent today ({bsDate})."
-  );
-  const [smsSaving, setSmsSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!tenantId) return;
-      const v = await AsyncStorage.getItem(SMS_TEMPLATE_KEY(tenantId));
-      if (!cancelled && v) setSmsTemplate(v);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId]);
 
   // Reset modal state
   const [resetOpen, setResetOpen] = useState(false);
@@ -69,15 +49,6 @@ export default function SettingsScreen() {
     if (entitlement.expiresAt == null) return "No expiry";
     return new Date(entitlement.expiresAt).toLocaleDateString();
   }, [entitlement]);
-
-  const isLicenseActive = useMemo(() => {
-    if (!entitlement?.premium) return false;
-    if (entitlement.expiresAt == null) return true;
-    return Date.now() < entitlement.expiresAt;
-  }, [entitlement]);
-
-  const canActivate = !loading && !activating && !!tenantId && !isLicenseActive;
-
 
   const appVersion =
     // Prefer expo config version (works in dev + build)
@@ -207,9 +178,20 @@ export default function SettingsScreen() {
           />
 
           <View style={styles.row}>
-          </View>
-
-          <View style={styles.featureBox}>
+            <Pressable
+              onPress={onActivate}
+              disabled={!canActivate || !licenseKey.trim()}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                (!canActivate || !licenseKey.trim()) && { opacity: 0.55 },
+                pressed && { opacity: 0.9 },
+              ]}
+            >
+              <Text style={styles.primaryBtnText}>
+                {isLicenseActive ? "Activated" : activating ? "Activating..." : "Activate Online"}
+              </Text>
+            </Pressable>
+          </View><View style={styles.featureBox}>
             <Text style={styles.featureTitle}>Premium features</Text>
 
             <View style={styles.featureRow}>

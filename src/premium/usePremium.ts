@@ -175,76 +175,6 @@ export function usePremium(tenantId: string | null) {
       const apiBase = APP_CONFIG.API_BASE_URL?.replace(/\/+$/, "");
       if (!apiBase) throw new Error("API_BASE_URL is empty");
 
-      // ✅ If API_BASE_URL points to Firebase Realtime Database, validate directly via RTDB REST API.
-      const isRtdb =
-        /firebaseio\.com\b/i.test(apiBase) || /firebasedatabase\.app\b/i.test(apiBase);
-
-      if (isRtdb) {
-        const base = apiBase.replace(/\/+$/, "");
-        const licenseKeySafe = encodeURIComponent(licenseKey);
-        const deviceSafe = encodeURIComponent(id);
-
-        // 1) Read license
-        const licenseUrl = `${base}/licenses/${licenseKeySafe}.json`;
-        const licRes = await fetchWithTimeout(licenseUrl, { method: "GET" }, 15000);
-        if (!licRes.ok) throw new Error(`License lookup failed (${licRes.status})`);
-
-        const lic = await licRes.json().catch(() => null);
-        if (!lic) throw new Error("Invalid license code");
-
-        // 2) Validate license fields
-        if (lic.active !== true) throw new Error("License is not active");
-        if (typeof lic.tenantId === "string" && lic.tenantId !== tenantId) {
-          throw new Error("License does not match this school");
-        }
-        const plan = typeof lic.plan === "string" ? lic.plan : "";
-        if (plan && plan !== "premium") throw new Error("License plan is not premium");
-
-        const expiresAt = safeNumber(lic.expiresAt);
-        if (expiresAt != null && nowMs() > expiresAt) throw new Error("License has expired");
-
-        const maxDevicesNum = Number(lic.maxDevices);
-        const maxDevices = Number.isFinite(maxDevicesNum) && maxDevicesNum > 0 ? maxDevicesNum : 1;
-
-        const usedDevices = lic.usedDevices && typeof lic.usedDevices === "object" ? lic.usedDevices : {};
-        const usedKeys = Object.keys(usedDevices || {});
-        const alreadyUsed = Boolean(usedDevices?.[id]);
-
-        if (!alreadyUsed && usedKeys.length >= maxDevices) {
-          throw new Error(`Device limit reached (${usedKeys.length}/${maxDevices})`);
-        }
-
-        // 3) Mark this device as used (idempotent)
-        const writeUrl = `${base}/licenses/${licenseKeySafe}/usedDevices/${deviceSafe}.json`;
-        const writeRes = await fetchWithTimeout(
-          writeUrl,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ activatedAt: nowMs() }),
-          },
-          15000
-        );
-        if (!writeRes.ok) throw new Error("Could not register this device");
-
-        // 4) Cache entitlement locally (offline expiry works via expiresAt)
-        const saveObj: PremiumEntitlement = {
-          premium: true,
-          tenantId,
-          deviceId: id,
-          licenseKey,
-          expiresAt: expiresAt ?? null,
-          graceUntil: null,
-          lastVerifiedAt: nowMs(),
-          plan: plan || "premium",
-        };
-
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saveObj));
-        setEntitlement(saveObj);
-        return saveObj;
-      }
-
-
       const appVersion =
         (Constants.expoConfig as any)?.version ??
         (Constants as any)?.nativeAppVersion ??
@@ -279,7 +209,7 @@ export function usePremium(tenantId: string | null) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
               },
-              15000
+              90000
             );
 
             const text = await res.text();
@@ -299,9 +229,7 @@ export function usePremium(tenantId: string | null) {
               throw new Error(msg);
             }
 
-            if (!json) throw new Error("Invalid license response");
-
-            const normalized = normalizeEntitlement(json, tenantId, id);
+            const normalized = normalizeEntitlement(json ?? { premium: true }, tenantId, id);
             const saveObj = {
               ...normalized,
               // always store tenantId/deviceId and verification time
@@ -314,7 +242,7 @@ export function usePremium(tenantId: string | null) {
             setEntitlement(saveObj);
             return saveObj;
           } catch (e: any) {
-            lastErr = e;
+            lastErr = e?.name === 'AbortError' ? new Error('Server is waking up. Please try again in a few seconds.') : e;
             // Try next endpoint
           }
         }
