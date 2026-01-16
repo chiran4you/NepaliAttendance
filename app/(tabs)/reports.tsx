@@ -83,6 +83,27 @@ async function readPremiumEntitlement(): Promise<{
   return null;
 }
 
+async function writeCsvToSandbox(filename: string, csvContent: string): Promise<string> {
+  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!baseDir) throw new Error("No writable app folder (are you using Expo Go?)");
+
+  const fileUri = baseDir + filename;
+  await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  return fileUri;
+}
+
+async function shareCsvFile(fileUri: string) {
+  const available = await Sharing.isAvailableAsync();
+  if (!available) throw new Error("Sharing is not available on this device");
+  await Sharing.shareAsync(fileUri, {
+    mimeType: "text/csv",
+    dialogTitle: "Share CSV",
+    UTI: "public.comma-separated-values-text",
+  });
+}
+
 export default function ReportsScreen() {
   const { tenant } = useTenant();
   const router = useRouter();
