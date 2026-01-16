@@ -82,6 +82,22 @@ export default function AttendanceScreen() {
   // --- SMS Alerts (Premium) per class ---
   const [smsOn, setSmsOn] = useState(false);
   const [queuedCount, setQueuedCount] = useState(0);
+
+  const [smsTemplate, setSmsTemplate] = useState<string>(
+    "Dear Parent, your child {studentName} (class {className}) is absent today. {bsDate} {schoolName}"
+  );
+
+    const SMS_TEMPLATE_KEY = (tenantId: string) => `smsTemplate:${tenantId}`;
+
+useEffect(() => {
+    if (!tenant?.tenantId) return;
+    AsyncStorage.getItem(SMS_TEMPLATE_KEY(tenant.tenantId))
+      .then((v) => {
+        if (v && v.trim()) setSmsTemplate(v);
+      })
+      .catch(() => {});
+  }, [tenant?.tenantId]);
+
   const [autoSending, setAutoSending] = useState(false);
 
   const dateAd = useMemo(() => {
@@ -420,6 +436,12 @@ export default function AttendanceScreen() {
       phone: String(s.phone || "").trim(),
       message: smsTemplate
         .replaceAll("{studentName}", String(s.name ?? ""))
+        .replaceAll(
+          "{className}",
+          selectedClass
+            ? `${String(selectedClass.name ?? "")}${selectedClass.section ? String(selectedClass.section) : ""}`
+            : ""
+        )
         .replaceAll("{rollNo}", String(s.rollNo ?? ""))
         .replaceAll("{bsDate}", String(bs))
         .replaceAll("{schoolName}", String(tenant.schoolName ?? "")),

@@ -1,6 +1,5 @@
 export function validateLicenseCode(code: string): boolean {
-  // Replace with server validation later.
-  // For now: accept codes like PREMIUM-1234
+  // Accept codes like: NA-22AB-339F-7896 (4-4-4 segments)
   const normalized = code.trim().toUpperCase();
-  return /^PREMIUM-\d{4}$/.test(normalized);
+  return /^NA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalized);
 }

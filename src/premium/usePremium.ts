@@ -6,6 +6,7 @@ import { randomUUID } from "expo-crypto";
 import Constants from "expo-constants";
 
 import { APP_CONFIG } from "../constants/appConfig";
+import { validateLicenseCode } from "./license";
 
 export type PremiumEntitlement = {
   premium: boolean;
@@ -40,10 +41,7 @@ function safeNumber(x: any): number | null {
 
 function normalizeEntitlement(input: any, tenantId: string, deviceId: string): PremiumEntitlement {
   const premium =
-    Boolean(input?.premium) ||
-    Boolean(input?.active) ||
-    Boolean(input?.enabled) ||
-    Boolean(input?.ok);
+    Boolean(input?.premium) || Boolean(input?.active) || Boolean(input?.enabled);
 
   const expiresAt =
     input?.expiresAt === null || input?.expiresAt === undefined
@@ -172,6 +170,12 @@ export function usePremium(tenantId: string | null) {
       const id = await getOrCreateDeviceId();
       setDeviceId(id);
 
+      const normalizedKey = licenseKey.trim().toUpperCase();
+      if (!normalizedKey) throw new Error("Please enter a license code.");
+      if (!validateLicenseCode(normalizedKey)) {
+        throw new Error("Invalid license code format.");
+      }
+
       const apiBase = APP_CONFIG.API_BASE_URL?.replace(/\/+$/, "");
       if (!apiBase) throw new Error("API_BASE_URL is empty");
 
@@ -182,7 +186,7 @@ export function usePremium(tenantId: string | null) {
 
       const payload = {
         tenantId,
-        licenseKey,
+        licenseKey: normalizedKey,
         deviceId: id,
         platform: Platform.OS,
         appVersion,
@@ -229,7 +233,20 @@ export function usePremium(tenantId: string | null) {
               throw new Error(msg);
             }
 
-            const normalized = normalizeEntitlement(json ?? { premium: true }, tenantId, id);
+            const normalized = normalizeEntitlement(json ?? {}, tenantId, id);
+            const now = Date.now();
+            const expired = normalized.expiresAt != null && now > normalized.expiresAt;
+            if (!normalized.premium) {
+              throw new Error(json?.error || json?.message || "License invalid or inactive");
+            }
+            if (expired) {
+              // Cache entitlement so UI can show expiry, but reject activation
+              const expiredEnt = { ...normalized, premium: false, note: "Expired" };
+              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(expiredEnt));
+              setEntitlement(expiredEnt);
+              throw new Error("License expired");
+            }
+
             const saveObj = {
               ...normalized,
               // always store tenantId/deviceId and verification time
@@ -242,7 +259,7 @@ export function usePremium(tenantId: string | null) {
             setEntitlement(saveObj);
             return saveObj;
           } catch (e: any) {
-            lastErr = e?.name === 'AbortError' ? new Error('Server is waking up. Please try again in a few seconds.') : e;
+            lastErr = e;
             // Try next endpoint
           }
         }
