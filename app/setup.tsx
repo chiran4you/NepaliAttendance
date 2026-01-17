@@ -91,7 +91,7 @@ export default function SetupScreen() {
       }
 
       if (!data) {
-        Alert.alert("Invalid code", `Code not found.\n\nURL checked:\n${codeUrl}`);
+        Alert.alert("Invalid school code", "Code not found. Please check and try again.");
         return;
       }
 
