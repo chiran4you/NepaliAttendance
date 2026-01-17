@@ -1,8 +1,13 @@
 {
   "build": {
-    "preview": {
+    "preview-clean": {
+      "developmentClient": false,
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_NO_CACHE": "1"
       }
     }
   }
