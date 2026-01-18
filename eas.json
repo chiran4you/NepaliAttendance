@@ -1,13 +1,17 @@
 {
   "build": {
+    "dev-csv": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "preview-clean": {
       "developmentClient": false,
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_NO_CACHE": "1"
       }
     }
   }
