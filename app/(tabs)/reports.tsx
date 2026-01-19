@@ -29,6 +29,14 @@ import {
   getMonthlyAttendanceSummary,
   type MonthlyStudentSummary,
 } from "../../src/db/reportRepo";
+import { getDb } from "../../src/db/db";
+
+type StudentMonthDetails = {
+  presentDates: string[];
+  absentDates: string[];
+  unmarkedDates: string[];
+  totalSessions: number;
+};
 
 function todayBs(): string {
   return new NepaliDate().format("YYYY-MM-DD");
@@ -101,6 +109,12 @@ export default function ReportsScreen() {
 
   // ✅ when we come back to Reports, force a reload
   const [refreshTick, setRefreshTick] = useState(0);
+
+  // Student-wise monthly details (tap a student card)
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailStudent, setDetailStudent] = useState<MonthlyStudentSummary | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detail, setDetail] = useState<StudentMonthDetails | null>(null);
 
   // Premium status from cached entitlement (offline)
   useEffect(() => {
@@ -206,6 +220,74 @@ export default function ReportsScreen() {
     setMonthBs(monthFromBsDate(picked));
     setPickerOpen(false);
   };
+
+  const loadStudentMonthDetails = useCallback(
+    async (studentId: string): Promise<StudentMonthDetails> => {
+      if (!tenantId || !classId) {
+        return { presentDates: [], absentDates: [], unmarkedDates: [], totalSessions: 0 };
+      }
+
+      const db = await getDb();
+      const like = `${monthBs}-%`;
+
+      const sessionRows = await db.getAllAsync<{
+        dateBs: string;
+        status: string | null;
+      }>(
+        `
+        SELECT
+          asess.dateBs AS dateBs,
+          ar.status AS status
+        FROM attendance_sessions asess
+        LEFT JOIN attendance_records ar
+          ON ar.sessionId = asess.id
+         AND ar.studentId = ?
+        WHERE asess.tenantId = ?
+          AND asess.classId = ?
+          AND asess.dateBs LIKE ?
+        ORDER BY asess.dateBs ASC;
+        `,
+        [studentId, tenantId, classId, like]
+      );
+
+      const presentDates: string[] = [];
+      const absentDates: string[] = [];
+      const unmarkedDates: string[] = [];
+
+      for (const r of sessionRows) {
+        if (r.status === "P") presentDates.push(r.dateBs);
+        else if (r.status === "A") absentDates.push(r.dateBs);
+        else unmarkedDates.push(r.dateBs);
+      }
+
+      return {
+        presentDates,
+        absentDates,
+        unmarkedDates,
+        totalSessions: sessionRows.length,
+      };
+    },
+    [tenantId, classId, monthBs]
+  );
+
+  const openStudentDetails = useCallback(
+    async (student: MonthlyStudentSummary) => {
+      setDetailStudent(student);
+      setDetail(null);
+      setDetailOpen(true);
+
+      try {
+        setDetailLoading(true);
+        const d = await loadStudentMonthDetails(student.studentId);
+        setDetail(d);
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to load student details");
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [loadStudentMonthDetails]
+  );
 
   async function exportCsv() {
 	  Alert.alert(
@@ -357,8 +439,8 @@ export default function ReportsScreen() {
           <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }} />
-                                <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
+                <Text style={styles.modalTitle}>Select a BS date</Text>
+                <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
                   <Ionicons name="close" size={18} color={Colors.textPrimary} />
                 </Pressable>
               </View>
@@ -372,6 +454,78 @@ export default function ReportsScreen() {
                 language="nepali"
               />
 
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
+      {/* Student-wise monthly details */}
+      {detailOpen ? (
+        <Modal visible={detailOpen} transparent animationType="fade" onRequestClose={() => setDetailOpen(false)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setDetailOpen(false)}>
+            <Pressable style={styles.detailModal} onPress={() => {}}>
+              <View style={styles.detailHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.detailTitle} numberOfLines={1}>
+                    {detailStudent?.name ?? "Student"}
+                  </Text>
+                  <Text style={styles.detailSub}>
+                    Roll {detailStudent?.rollNo ?? "-"} • Month (BS): {monthBs}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setDetailOpen(false)} style={styles.detailCloseBtn}>
+                  <Ionicons name="close" size={20} color={Colors.textPrimary} />
+                </Pressable>
+              </View>
+
+              {detailLoading ? (
+                <Text style={styles.detailLoading}>Loading…</Text>
+              ) : !detailStudent || !detail ? (
+                <Text style={styles.detailLoading}>No details</Text>
+              ) : (
+                <View style={{ gap: 12 }}>
+                  <View style={styles.detailBadges}>
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeValue}>{detail.presentDates.length}</Text>
+                      <Text style={styles.detailBadgeLabel}>Present</Text>
+                    </View>
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeValue}>{detail.absentDates.length}</Text>
+                      <Text style={styles.detailBadgeLabel}>Absent</Text>
+                    </View>
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeValue}>{detail.unmarkedDates.length}</Text>
+                      <Text style={styles.detailBadgeLabel}>Unmarked</Text>
+                    </View>
+                    <View style={styles.detailBadgeTotal}>
+                      <Text style={styles.detailBadgeValue}>{detail.totalSessions}</Text>
+                      <Text style={styles.detailBadgeLabel}>Total Days</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailSection}>
+                    <Text style={styles.detailSectionTitle}>Present dates</Text>
+                    <Text style={styles.detailDates}>
+                      {detail.presentDates.length ? detail.presentDates.join(", ") : "-"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.detailSection}>
+                    <Text style={styles.detailSectionTitle}>Absent dates</Text>
+                    <Text style={styles.detailDates}>
+                      {detail.absentDates.length ? detail.absentDates.join(", ") : "-"}
+                    </Text>
+                  </View>
+
+                  {/* unmarked dates are optional to show; counts above always show */}
+                  <View style={styles.detailSection}>
+                    <Text style={styles.detailSectionTitle}>Unmarked dates</Text>
+                    <Text style={styles.detailDates}>
+                      {detail.unmarkedDates.length ? detail.unmarkedDates.join(", ") : "-"}
+                    </Text>
+                  </View>
+                </View>
+              )}
             </Pressable>
           </Pressable>
         </Modal>
@@ -534,7 +688,10 @@ export default function ReportsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <Pressable
+            onPress={() => openStudentDetails(item)}
+            style={styles.card}
+          >
             <View style={styles.cardTop}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardName} numberOfLines={1}>
@@ -581,7 +738,7 @@ export default function ReportsScreen() {
                 <Text style={styles.statLabel}>Total</Text>
               </View>
             </View>
-          </View>
+          </Pressable>
         )}
       />
     </Screen>
@@ -723,6 +880,99 @@ const styles = StyleSheet.create({
   statValueAbsent: { color: "#B42318" },
   statLabelPresent: { color: "#067647" },
   statLabelAbsent: { color: "#B42318" },
+
+  // --- Modals ---
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  modalTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
+  modalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+  },
+
+  // Student details modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  detailModal: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 10,
+  },
+  detailHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  detailTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
+  detailSub: { marginTop: 3, fontSize: 12, fontWeight: "800", color: Colors.textSecondary },
+  detailCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+  },
+  detailLoading: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary, paddingVertical: 10 },
+  detailBadges: { flexDirection: "row", gap: 10 },
+  detailBadge: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F8FAFC",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  detailBadgeTotal: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+    backgroundColor: "#EEF2FF",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  detailBadgeValue: { fontWeight: "900", color: Colors.textPrimary, fontSize: 14 },
+  detailBadgeLabel: { marginTop: 2, fontWeight: "800", color: Colors.textSecondary, fontSize: 11 },
+  detailSection: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    gap: 6,
+  },
+  detailSectionTitle: { fontWeight: "900", color: Colors.textPrimary, fontSize: 12 },
+  detailDates: { color: Colors.textSecondary, fontWeight: "800", fontSize: 12, lineHeight: 18 },
 
   // --- Class-wise summary card ---
   summaryCard: {
