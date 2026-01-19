@@ -27,9 +27,7 @@ import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, type ClassItem } from "../../src/db/classRepo";
 import {
   getMonthlyAttendanceSummary,
-  getStudentMonthlyAttendanceDetails,
   type MonthlyStudentSummary,
-  type StudentMonthlyAttendanceDetail,
 } from "../../src/db/reportRepo";
 
 function todayBs(): string {
@@ -83,27 +81,6 @@ async function readPremiumEntitlement(): Promise<{
   return null;
 }
 
-async function writeCsvToSandbox(filename: string, csvContent: string): Promise<string> {
-  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-  if (!baseDir) throw new Error("No writable app folder (are you using Expo Go?)");
-
-  const fileUri = baseDir + filename;
-  await FileSystem.writeAsStringAsync(fileUri, csvContent, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-  return fileUri;
-}
-
-async function shareCsvFile(fileUri: string) {
-  const available = await Sharing.isAvailableAsync();
-  if (!available) throw new Error("Sharing is not available on this device");
-  await Sharing.shareAsync(fileUri, {
-    mimeType: "text/csv",
-    dialogTitle: "Share CSV",
-    UTI: "public.comma-separated-values-text",
-  });
-}
-
 export default function ReportsScreen() {
   const { tenant } = useTenant();
   const router = useRouter();
@@ -115,19 +92,12 @@ export default function ReportsScreen() {
   const [classId, setClassId] = useState<string | null>(null);
 
   const [monthBs, setMonthBs] = useState<string>(monthFromBsDate(todayBs()));
-  const [pickedDate, setPickedDate] = useState<string>(todayBs());
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [rows, setRows] = useState<MonthlyStudentSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [premiumOk, setPremiumOk] = useState(false);
-
-  // Student-wise daily details (tap a student card)
-  const [selectedStudent, setSelectedStudent] = useState<MonthlyStudentSummary | null>(null);
-  const [studentDetails, setStudentDetails] = useState<StudentMonthlyAttendanceDetail[]>([]);
-  const [studentDetailsOpen, setStudentDetailsOpen] = useState(false);
-  const [detailsLoading, setDetailsLoading] = useState(false);
 
   // ✅ when we come back to Reports, force a reload
   const [refreshTick, setRefreshTick] = useState(0);
@@ -232,53 +202,12 @@ export default function ReportsScreen() {
     return { sumPresent: sp, sumAbsent: sa, sumTotal: st, overallRate: rate };
   }, [rows]);
 
-  
-
-  const { presentDates, absentDates, unmarkedDates } = useMemo(() => {
-    const p: string[] = [];
-    const a: string[] = [];
-    const u: string[] = [];
-    for (const d of studentDetails) {
-      if (d.status === "P") p.push(d.dateBs);
-      else if (d.status === "A") a.push(d.dateBs);
-      else u.push(d.dateBs);
-    }
-    return { presentDates: p, absentDates: a, unmarkedDates: u };
-  }, [studentDetails]);
-
   const onPickDate = (picked: string) => {
-    setPickedDate(picked);
     setMonthBs(monthFromBsDate(picked));
     setPickerOpen(false);
   };
 
-  
-  const openStudentDetails = useCallback(
-    async (student: MonthlyStudentSummary) => {
-      if (!tenantId || !classId) return;
-
-      setSelectedStudent(student);
-      setStudentDetailsOpen(true);
-      setDetailsLoading(true);
-      try {
-        const detail = await getStudentMonthlyAttendanceDetails({
-          tenantId,
-          classId,
-          studentId: student.studentId,
-          monthBs,
-        });
-        setStudentDetails(detail);
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "Failed to load student details");
-        setStudentDetails([]);
-      } finally {
-        setDetailsLoading(false);
-      }
-    },
-    [tenantId, classId, monthBs]
-  );
-
-async function exportCsv() {
+  async function exportCsv() {
 	  Alert.alert(
   "FS Check",
   `cache=${String(FileSystem.cacheDirectory)}\n` +
@@ -328,7 +257,7 @@ async function exportCsv() {
 
       const csv = [
         header.map(csvEscape).join(","),
-        rows.map((r) =>
+        ...rows.map((r) =>
           [
             monthBs,
             className,
@@ -419,98 +348,34 @@ async function exportCsv() {
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
       {pickerOpen ? (
-        <Modal transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => setPickerOpen(false)}
-            />
-            <View style={styles.modalCard}>
+        <Modal
+          visible={pickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPickerOpen(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select a BS date</Text>
-                <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
+                <View style={{ flex: 1 }} />
+                                <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
                   <Ionicons name="close" size={18} color={Colors.textPrimary} />
                 </Pressable>
               </View>
 
               <CalendarPicker
-                selectedDate={pickedDate}
+                visible={true}
+                onClose={() => setPickerOpen(false)}
                 onDateSelect={onPickDate}
                 brandColor={Colors.primary}
                 // @ts-ignore
                 language="nepali"
-                onClose={() => setPickerOpen(false)}
               />
-            </View>
-          </View>
-        </Modal>
-      ) : null}
 
-      {/* Student-wise monthly summary (daily present/absent) */}
-      {studentDetailsOpen ? (
-        <Modal
-          visible={studentDetailsOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setStudentDetailsOpen(false)}
-        >
-          <Pressable style={styles.modalOverlay} onPress={() => setStudentDetailsOpen(false)}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>Student Monthly Summary</Text>
-                  <Text style={styles.modalSubtitle}>
-                    {selectedStudent
-                      ? `${selectedStudent.name} (Roll ${selectedStudent.rollNo})`
-                      : "Student"}
-                    {"  "}•{"  "}
-                    {monthBs}
-                  </Text>
-                </View>
-                <Pressable onPress={() => setStudentDetailsOpen(false)} style={styles.modalClose}>
-                  <Ionicons name="close" size={18} color={Colors.textPrimary} />
-                </Pressable>
-              </View>
-
-              {detailsLoading ? (
-                <Text style={styles.modalHint}>Loading</Text>
-              ) : (
-                <View style={styles.studentDetailWrap}>
-                  <View style={styles.detailColumn}>
-                    <Text style={styles.detailTitle}>Present ({presentDates.length})</Text>
-                    {presentDates.length ? (
-                      <Text style={styles.detailText}>{presentDates.join(", ")}</Text>
-                    ) : (
-                      <Text style={styles.detailEmpty}>No present days</Text>
-                    )}
-                  </View>
-
-                  <View style={styles.detailColumn}>
-                    <Text style={styles.detailTitle}>Absent ({absentDates.length})</Text>
-                    {absentDates.length ? (
-                      <Text style={styles.detailText}>{absentDates.join(", ")}</Text>
-                    ) : (
-                      <Text style={styles.detailEmpty}>No absent days</Text>
-                    )}
-                  </View>
-
-                  {unmarkedDates.length ? (
-                    <View style={styles.detailColumn}>
-                      <Text style={styles.detailTitle}>Unmarked ({unmarkedDates.length})</Text>
-                      <Text style={styles.detailText}>{unmarkedDates.join(", ")}</Text>
-                    </View>
-                  ) : null}
-
-                  <Text style={styles.modalHint}>
-                    Tip: This shows exactly which BS dates were marked present/absent for the selected month.
-                  </Text>
-                </View>
-              )}
             </Pressable>
           </Pressable>
         </Modal>
       ) : null}
-
 
       {/* ✅ Make FlatList own the whole scroll area so swipe works anywhere */}
       <FlatList
@@ -669,7 +534,7 @@ async function exportCsv() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable style={styles.card} onPress={() => openStudentDetails(item)}>
+          <View style={styles.card}>
             <View style={styles.cardTop}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardName} numberOfLines={1}>
@@ -716,7 +581,7 @@ async function exportCsv() {
                 <Text style={styles.statLabel}>Total</Text>
               </View>
             </View>
-          </Pressable>
+          </View>
         )}
       />
     </Screen>
@@ -912,71 +777,7 @@ const styles = StyleSheet.create({
   statValue: { fontWeight: "900", color: Colors.textPrimary, fontSize: 14 },
   statLabel: { marginTop: 2, fontWeight: "800", color: Colors.textSecondary, fontSize: 11 },
 
-
-
-  // --- Modals (month picker + student details) ---
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "center",
-    padding: 16,
-  },
-  modalCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: "#FFFFFF",
-    padding: 12,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  modalTitle: { fontSize: 14, fontWeight: "900", color: Colors.textPrimary },
-  modalClose: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: "#F8FAFC",
-  },
-  modalHint: { marginTop: 8, fontSize: 12, color: Colors.textSecondary, fontWeight: "800" },
-
-  detailMeta: { marginTop: 4, fontSize: 12, color: Colors.textSecondary, fontWeight: "800" },
-  detailRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  detailCol: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: "#F8FAFC",
-    padding: 10,
-    gap: 6,
-  },
-  detailColTitle: { fontSize: 13, fontWeight: "900", color: Colors.textPrimary },
-  detailPill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: "#FFFFFF",
-  },
-  detailPillText: { fontSize: 12, fontWeight: "900", color: Colors.textSecondary },
-
   empty: { alignItems: "center", paddingVertical: 36, gap: 8, marginHorizontal: 16 },
   emptyTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
   emptySubtitle: { textAlign: "center", color: Colors.textSecondary, marginTop: 2 },
-  modalSubtitle: { fontSize: 12, color: Colors.textSecondary, fontWeight: "800", marginTop: 2 },
-  studentDetailWrap: { gap: 10 },
-  detailColumn: { borderWidth: 1, borderColor: Colors.border, borderRadius: 14, padding: 10, backgroundColor: "#FFFFFF", gap: 6 },
-  detailTitle: { fontSize: 12, fontWeight: "900", color: Colors.textPrimary },
-  detailText: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary, lineHeight: 18 },
-  detailEmpty: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary },
 });
