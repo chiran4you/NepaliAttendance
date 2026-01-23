@@ -9,13 +9,12 @@ import {
   StyleSheet,
   Platform,
   Modal,
-  Share,
 } from "react-native";
 import NepaliDate from "nepali-date-converter";
 import { Ionicons } from "@expo/vector-icons";
 import { CalendarPicker } from "react-native-nepali-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -23,6 +22,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
 import { Colors } from "../../src/constants/colors";
+import { APP_CONFIG } from "../../src/constants/appConfig";
+import { validatePremiumEntitlement } from "../../src/premium/license";
 import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, type ClassItem } from "../../src/db/classRepo";
 import {
@@ -57,6 +58,8 @@ function csvEscape(value: unknown): string {
 async function readPremiumEntitlement(): Promise<{
   premium: boolean;
   expiresAt: number | null;
+  lastVerifiedAt: number | null;
+  graceUntil: number | null;
 } | null> {
   const keys = [
     "premiumEntitlement",
@@ -77,9 +80,23 @@ async function readPremiumEntitlement(): Promise<{
           ? null
           : Number(obj?.expiresAt);
 
+      const lastVerifiedAtRaw = obj?.lastVerifiedAt ?? obj?.lastVerified ?? null;
+      const lastVerifiedAt =
+        lastVerifiedAtRaw === null || lastVerifiedAtRaw === undefined
+          ? null
+          : Number(lastVerifiedAtRaw);
+
+      const graceUntilRaw = obj?.graceUntil ?? obj?.graceUntilAt ?? null;
+      const graceUntil =
+        graceUntilRaw === null || graceUntilRaw === undefined
+          ? null
+          : Number(graceUntilRaw);
+
       return {
         premium,
         expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+        lastVerifiedAt: Number.isFinite(lastVerifiedAt as any) ? (lastVerifiedAt as any) : null,
+        graceUntil: Number.isFinite(graceUntil as any) ? (graceUntil as any) : null,
       };
     } catch {
       // ignore
@@ -123,9 +140,11 @@ export default function ReportsScreen() {
     (async () => {
       const ent = await readPremiumEntitlement();
       const now = Date.now();
-      const ok =
-        Boolean(ent?.premium) &&
-        (ent?.expiresAt == null || (Number(ent.expiresAt) > 0 && now <= ent.expiresAt));
+      const { valid } = validatePremiumEntitlement(ent, {
+        now,
+        graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
+      });
+      const ok = valid;
 
       if (mounted) setPremiumOk(ok);
     })();
@@ -290,13 +309,6 @@ export default function ReportsScreen() {
   );
 
   async function exportCsv() {
-	  Alert.alert(
-  "FS Check",
-  `cache=${String(FileSystem.cacheDirectory)}\n` +
-  `doc=${String(FileSystem.documentDirectory)}\n` +
-  `SAF=${!!FileSystem.StorageAccessFramework}`
-);
-
     if (!tenantId || !selectedClass) return;
 
     if (!csvAllowedForSchool) {
@@ -380,7 +392,7 @@ export default function ReportsScreen() {
       }
 
       // ✅ Fallback: write into cache/document directory, then share
-      const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      const baseDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
       if (baseDir) {
         const fileUri = baseDir + fileName;
         await FileSystem.writeAsStringAsync(fileUri, csv, {
@@ -439,7 +451,7 @@ export default function ReportsScreen() {
           <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select a BS date</Text>
+                <View style={{ flex: 1 }} />
                 <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
                   <Ionicons name="close" size={18} color={Colors.textPrimary} />
                 </Pressable>

@@ -22,6 +22,8 @@ import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
 import { Colors } from "../../src/constants/colors";
 import { APP_CONFIG } from "../../src/constants/appConfig";
+import { validatePremiumEntitlement } from "../../src/premium/license";
+import { readPremiumEntitlement } from "../../src/premium/readEntitlement";
 import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, ClassItem } from "../../src/db/classRepo";
 import { listStudents, StudentItem } from "../../src/db/studentRepo";
@@ -113,34 +115,16 @@ useEffect(() => {
     [classes, selectedClassId]
   );
 
-  const isPremiumValid = async () => {
-    try {
-      const raw =
-        (await AsyncStorage.getItem("premiumEntitlement")) ||
-        (await AsyncStorage.getItem("premium_entitlement")) ||
-        (await AsyncStorage.getItem("entitlement")) ||
-        (await AsyncStorage.getItem("license_entitlement"));
-      if (!raw) return false;
 
-      const ent = JSON.parse(raw);
-      if (!ent?.premium) return false;
 
-      const expiresAt = ent.expiresAt ?? null;
-      if (typeof expiresAt === "number" && Date.now() > expiresAt) return false;
-
-      const graceDays = APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14;
-      const lastVerifiedAt = ent.lastVerifiedAt ?? ent.lastVerified ?? null;
-      if (typeof lastVerifiedAt === "number") {
-        const maxAgeMs = graceDays * 24 * 60 * 60 * 1000;
-        if (Date.now() - lastVerifiedAt > maxAgeMs) return false;
-      }
-
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
+const isPremiumValid = useCallback(async () => {
+  const ent = await readPremiumEntitlement();
+  const { valid } = validatePremiumEntitlement(ent, {
+    now: Date.now(),
+    graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
+  });
+  return valid;
+}, []);
   const refreshClasses = async (): Promise<{ rows: ClassItem[]; selectedId: string }> => {
     const rows = await listClasses(tenant.tenantId);
     setClasses(rows);

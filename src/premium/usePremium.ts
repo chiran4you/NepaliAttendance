@@ -6,7 +6,7 @@ import { randomUUID } from "expo-crypto";
 import Constants from "expo-constants";
 
 import { APP_CONFIG } from "../constants/appConfig";
-import { validateLicenseCode } from "./license";
+import { validateLicenseCode, validatePremiumEntitlement } from "./license";
 
 export type PremiumEntitlement = {
   premium: boolean;
@@ -68,21 +68,13 @@ function normalizeEntitlement(input: any, tenantId: string, deviceId: string): P
 }
 
 function isPremiumActive(ent: PremiumEntitlement | null): boolean {
-  if (!ent?.premium) return false;
-
-  const now = nowMs();
-
-  // If expiry is missing -> treat as active
-  if (ent.expiresAt == null) return true;
-
-  // Active until expiry
-  if (now <= ent.expiresAt) return true;
-
-  // Optional grace period
-  if (ent.graceUntil != null && now <= ent.graceUntil) return true;
-
-  return false;
+  const { valid } = validatePremiumEntitlement(ent, {
+    now: nowMs(),
+    graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
+  });
+  return valid;
 }
+
 
 async function getOrCreateDeviceId(): Promise<string> {
   const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
