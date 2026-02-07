@@ -373,25 +373,81 @@ export default function ReportsScreen() {
       const ym = monthBs; // "YYYY-MM" in BS
       const fileName = `NepaliAttendance_${safeClass}${safeSection ? `_${safeSection}` : ""}_${ym}.csv`;
 
-      // ✅ Android: let user choose a folder (Storage Access Framework)
-      if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
-        const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-        if (perm.granted) {
-          const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            perm.directoryUri,
-            fileName,
-            "text/csv"
-          );
-          await FileSystem.writeAsStringAsync(fileUri, csv, {
-            encoding: FileSystem.EncodingType.UTF8,
-          });
-          Alert.alert("Exported", "CSV saved to the folder you selected.");
-          return;
-        }
-        // If user cancels folder selection, we fall back to sharing.
-      }
+      // ✅ Android: prefer previously chosen folder; ask again only if needed (Storage Access Framework)
+if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
+  const EXPORT_DIR_KEY = "reports_export_dir_uri";
 
-      // ✅ Fallback: write into cache/document directory, then share
+  // 1) Try previously saved directory
+  const savedDirUri = await AsyncStorage.getItem(EXPORT_DIR_KEY);
+  if (savedDirUri) {
+    try {
+      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        savedDirUri,
+        fileName,
+        "text/csv"
+      );
+      await FileSystem.writeAsStringAsync(fileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      Alert.alert("Exported", "CSV saved to your previously selected folder.");
+      // Also create a shareable copy (file://) and open share sheet
+try {
+  if (Sharing && (await Sharing.isAvailableAsync())) {
+    const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.writeAsStringAsync(shareUri, csv, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    await Sharing.shareAsync(shareUri, {
+      mimeType: "text/csv",
+      dialogTitle: "Share CSV",
+    });
+  }
+} catch (e) {
+  // Ignore share errors; export already succeeded.
+}
+            return;
+    } catch (e) {
+      // Directory permission may have been revoked; clear and re-prompt below.
+      await AsyncStorage.removeItem(EXPORT_DIR_KEY);
+    }
+  }
+
+  // 2) Ask user to pick a folder (first time or after revoke)
+  const perm =
+    await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+  if (perm.granted) {
+    await AsyncStorage.setItem(EXPORT_DIR_KEY, perm.directoryUri);
+
+    const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+      perm.directoryUri,
+      fileName,
+      "text/csv"
+    );
+    await FileSystem.writeAsStringAsync(fileUri, csv, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    Alert.alert("Exported", "CSV saved to the folder you selected.");
+    // Also create a shareable copy (file://) and open share sheet
+try {
+  if (Sharing && (await Sharing.isAvailableAsync())) {
+    const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.writeAsStringAsync(shareUri, csv, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    await Sharing.shareAsync(shareUri, {
+      mimeType: "text/csv",
+      dialogTitle: "Share CSV",
+    });
+  }
+} catch (e) {
+  // Ignore share errors; export already succeeded.
+}
+          return;
+  }
+  // If user cancels folder selection, we fall back to sharing.
+}
+
+// ✅ Fallback: write into cache/document directory, then share
       const baseDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
       if (baseDir) {
         const fileUri = baseDir + fileName;

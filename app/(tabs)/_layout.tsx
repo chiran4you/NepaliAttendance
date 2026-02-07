@@ -1,9 +1,12 @@
 // app/(tabs)/_layout.tsx
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -13,17 +16,21 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: "#FFFFFF",
           borderTopColor: Colors.border,
-          height: 64,
+          // ✅ make room for Android 3-button nav / safe area
+          height: 64 + insets.bottom,
           paddingTop: 6,
-          paddingBottom: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: "700",
         },
+        tabBarItemStyle: {
+          paddingVertical: 4, // ✅ easier to tap
+        },
       }}
     >
-      {/* 1. Classes */}
+      {/* Order: Classes, Students, Attendance, Reports, Settings */}
       <Tabs.Screen
         name="classes"
         options={{
@@ -34,7 +41,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* 2. Students */}
       <Tabs.Screen
         name="students"
         options={{
@@ -45,7 +51,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* 3. Attendance */}
       <Tabs.Screen
         name="attendance"
         options={{
@@ -56,7 +61,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* 4. Reports */}
       <Tabs.Screen
         name="reports"
         options={{
@@ -67,7 +71,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* 5. Settings */}
       <Tabs.Screen
         name="settings"
         options={{

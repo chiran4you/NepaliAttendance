@@ -1,7 +1,6 @@
 // src/components/Screen.tsx
 import React from "react";
 import { View, StyleSheet, ViewStyle } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../constants/colors";
 
 type Props = {
@@ -10,24 +9,17 @@ type Props = {
 };
 
 /**
- * Simple screen wrapper for consistent background + layout.
- * Adds bottom padding so content doesn't hide under the tab bar.
+ * Screen wrapper.
+ *
+ * IMPORTANT:
+ * With Expo Router <Tabs />, the tab bar already occupies layout space (it is not overlaying the screen).
+ * So adding a fixed paddingBottom creates a visible blank gap above the tabs.
+ *
+ * If you ever have a screen where content is truly hidden behind the tab bar, add bottom padding
+ * in THAT screen only (not globally here).
  */
 export default function Screen({ children, style }: Props) {
-  const insets = useSafeAreaInsets();
-  const TAB_BAR_HEIGHT = 64;
-
-  return (
-    <View
-      style={[
-        styles.container,
-        { paddingBottom: TAB_BAR_HEIGHT + insets.bottom },
-        style,
-      ]}
-    >
-      {children}
-    </View>
-  );
+  return <View style={[styles.container, style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
