@@ -441,35 +441,14 @@ export default function ReportsScreen() {
     <Screen>
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
-      {pickerOpen ? (
-        <Modal
-          visible={pickerOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPickerOpen(false)}
-        >
-          <Pressable style={styles.modalOverlay} onPress={() => setPickerOpen(false)}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }} />
-                <Pressable onPress={() => setPickerOpen(false)} style={styles.modalClose}>
-                  <Ionicons name="close" size={18} color={Colors.textPrimary} />
-                </Pressable>
-              </View>
-
-              <CalendarPicker
-                visible={true}
-                onClose={() => setPickerOpen(false)}
-                onDateSelect={onPickDate}
-                brandColor={Colors.primary}
-                // @ts-ignore
-                language="nepali"
-              />
-
-            </Pressable>
-          </Pressable>
-        </Modal>
-      ) : null}
+      <CalendarPicker
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onDateSelect={onPickDate}
+        brandColor={Colors.primary}
+        // @ts-ignore
+        language="nepali"
+      />
 
       {/* Student-wise monthly details */}
       {detailOpen ? (

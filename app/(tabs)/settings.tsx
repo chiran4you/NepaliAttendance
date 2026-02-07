@@ -26,7 +26,8 @@ const DB_NAME = "nepaliattendance.db";
 
 export default function SettingsScreen() {
   const { tenant, logoutTenant } = useTenant();
-  const tenantId = tenant?.tenantId ?? null;
+
+  const tenantId = tenant.tenantId;
 
   const { loading, premiumEnabled, statusText, deviceId, entitlement, activate, clear } =
     usePremium(tenantId);
