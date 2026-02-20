@@ -22,6 +22,7 @@ import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, ClassItem } from "../../src/db/classRepo";
 import {
   addStudentAutoRoll,
+  addStudentManualRoll,
   updateStudent,
   deleteStudent,
   listStudents,
@@ -37,6 +38,9 @@ export default function StudentsScreen() {
 
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [nextRoll, setNextRoll] = useState<number>(1);
+
+  const [autoRoll, setAutoRoll] = useState<boolean>(true);
+  const [manualRoll, setManualRoll] = useState<string>("");
 
   const [editingStudent, setEditingStudent] = useState<StudentItem | null>(null);
 
@@ -109,6 +113,7 @@ export default function StudentsScreen() {
       Alert.alert("Invalid DOB", "Use format YYYY-MM-DD (example: 2012-05-21).");
       return;
     }
+    try {
 
     if (editingStudent) {
       await updateStudent({
@@ -121,21 +126,46 @@ export default function StudentsScreen() {
         address: address.trim() ? address.trim() : null,
       });
     } else {
-      await addStudentAutoRoll({
-        id: randomUUID(),
-        tenantId: tenant.tenantId,
-        classId: selectedClassId,
-        name: n,
-        dob: dob.trim() ? dob.trim() : null,
-        parentName: parentName.trim() ? parentName.trim() : null,
-        phone: phone.trim() ? phone.trim() : null,
-        address: address.trim() ? address.trim() : null,
-        createdAt: Date.now(),
-      });
+      if (autoRoll) {
+        await addStudentAutoRoll({
+          id: randomUUID(),
+          tenantId: tenant.tenantId,
+          classId: selectedClassId,
+          name: n,
+          dob: dob.trim() ? dob.trim() : null,
+          parentName: parentName.trim() ? parentName.trim() : null,
+          phone: phone.trim() ? phone.trim() : null,
+          address: address.trim() ? address.trim() : null,
+          createdAt: Date.now(),
+        });
+      } else {
+        const roll = Number(manualRoll);
+
+        if (!roll || roll <= 0) {
+          Alert.alert("Invalid roll number", "Please enter a valid positive number.");
+          return;
+        }
+
+        await addStudentManualRoll({
+          id: randomUUID(),
+          tenantId: tenant.tenantId,
+          classId: selectedClassId,
+          rollNo: roll,
+          name: n,
+          dob: dob.trim() ? dob.trim() : null,
+          parentName: parentName.trim() ? parentName.trim() : null,
+          phone: phone.trim() ? phone.trim() : null,
+          address: address.trim() ? address.trim() : null,
+          createdAt: Date.now(),
+        });
+      }
     }
 
     clearForm();
     await refreshStudents(selectedClassId);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Something went wrong.");
+    }
   };
 
   const onDeleteStudent = (s: StudentItem) => {
@@ -169,6 +199,7 @@ export default function StudentsScreen() {
     setPhone("");
     setAddress("");
     setEditingStudent(null);
+    setManualRoll("");
   };
 
   const startEdit = (st: StudentItem) => {
@@ -259,6 +290,33 @@ export default function StudentsScreen() {
                   <Text style={styles.ghostBtnText}>{editingStudent ? "Cancel" : "Clear"}</Text>
                 </Pressable>
               </View>
+
+              {!editingStudent && (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+                    <Pressable onPress={() => setAutoRoll(!autoRoll)} style={{ padding: 4 }}>
+                      <Ionicons
+                        name={autoRoll ? "checkbox" : "square-outline"}
+                        size={20}
+                        color={Colors.primary}
+                      />
+                    </Pressable>
+                    <Text style={{ marginLeft: 8, color: Colors.textPrimary }}>Auto Roll Number</Text>
+                  </View>
+
+                  {!autoRoll && (
+                    <TextInput
+                      value={manualRoll}
+                      onChangeText={setManualRoll}
+                      placeholder="Enter Roll Number"
+                      placeholderTextColor={Colors.muted}
+                      keyboardType="number-pad"
+                      style={styles.input}
+                    />
+                  )}
+                </>
+              )}
+
 
               <TextInput
                 value={name}

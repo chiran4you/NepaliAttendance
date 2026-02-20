@@ -30,7 +30,7 @@ export default function TabsLayout() {
         },
       }}
     >
-      {/* Order: Classes, Students, Attendance, Reports, Settings */}
+      {/* Order: Classes, Students, Attendance, Holidays, Reports, Settings */}
       <Tabs.Screen
         name="classes"
         options={{
@@ -57,6 +57,16 @@ export default function TabsLayout() {
           title: "Attendance",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="checkmark-done" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="holidays"
+        options={{
+          title: "Holidays",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar" size={size} color={color} />
           ),
         }}
       />

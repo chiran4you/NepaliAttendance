@@ -62,7 +62,7 @@ export async function initSchema(db: SQLite.SQLiteDatabase) {
     CREATE TABLE IF NOT EXISTS attendance_records (
       sessionId TEXT NOT NULL,
       studentId TEXT NOT NULL,
-      status TEXT NOT NULL,      -- "P" | "A"
+      status TEXT NOT NULL,      -- "P" | "A" | "L"
       markedAt INTEGER NOT NULL,
       PRIMARY KEY (sessionId, studentId),
       FOREIGN KEY (sessionId) REFERENCES attendance_sessions(id) ON DELETE CASCADE
@@ -104,4 +104,77 @@ export async function initSchema(db: SQLite.SQLiteDatabase) {
     CREATE INDEX IF NOT EXISTS idx_sms_outbox_class_date
       ON sms_outbox (tenantId, classId, bsDate);
   `);
+
+
+  // --- Migrations for older installs ---
+  // Older databases may have 'holidays' created without newer columns like title/createdAt.
+  // CREATE TABLE IF NOT EXISTS won't change existing tables, so we patch them here.
+  try {
+    const cols = await db.getAllAsync<{ name: string }>("PRAGMA table_info(holidays);");
+    const hasTitle = Array.isArray(cols) && cols.some((c) => c?.name === "title");
+    const hasCreatedAt = Array.isArray(cols) && cols.some((c) => c?.name === "createdAt");
+
+    if (!hasTitle) {
+      await db.execAsync("ALTER TABLE holidays ADD COLUMN title TEXT;");
+    }
+    if (!hasCreatedAt) {
+      // Adding a NOT NULL column requires a DEFAULT.
+      await db.execAsync("ALTER TABLE holidays ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0;");
+      // Best-effort backfill
+      try {
+        await db.execAsync(
+          "UPDATE holidays SET createdAt = CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE createdAt = 0;"
+        );
+      } catch {}
+    }
+  } catch {
+    // ignore
+  }
+
+/* ---------------- Attendance Enhancements ---------------- */
+
+// Add dayType to attendance_sessions (safe migration)
+try {
+  await db.execAsync(
+    "ALTER TABLE attendance_sessions ADD COLUMN dayType TEXT NOT NULL DEFAULT 'CLASS';"
+  );
+} catch {
+  // ignore if already exists
+}
+
+// Public holidays (BS dates) table
+await db.execAsync(`
+  CREATE TABLE IF NOT EXISTS holidays (
+    tenantId TEXT NOT NULL,
+    dateBs TEXT NOT NULL, -- "YYYY-MM-DD" (BS)
+    title TEXT,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (tenantId, dateBs)
+  );
+`);
+
+// Index for faster holiday lookups
+await db.execAsync(`
+  CREATE INDEX IF NOT EXISTS idx_holidays_tenant_dateBs
+  ON holidays (tenantId, dateBs);
+`);
+
+  // --- Migration: ensure (tenantId, dateBs) is UNIQUE for holidays so UPSERT works ---
+  try {
+    // If an older DB had no UNIQUE/PK on (tenantId, dateBs), the ON CONFLICT clause will fail.
+    // First, dedupe any accidental duplicates (keep the latest rowid).
+    await db.execAsync(`
+      DELETE FROM holidays
+      WHERE rowid NOT IN (
+        SELECT MAX(rowid) FROM holidays GROUP BY tenantId, dateBs
+      );
+    `);
+    await db.execAsync(
+      "CREATE UNIQUE INDEX IF NOT EXISTS ux_holidays_tenant_date ON holidays (tenantId, dateBs);"
+    );
+  } catch {
+    // ignore
+  }
+
+
 }

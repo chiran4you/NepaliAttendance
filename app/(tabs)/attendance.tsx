@@ -228,10 +228,13 @@ const isPremiumValid = useCallback(async () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateBs, selectedClassId]);
 
+  const STATUS_ORDER: AttendanceStatus[] = ["P", "A", "L", "S"];
+
   const toggleStatus = (studentId: string) => {
     setStatusByStudentId((prev) => {
       const cur = prev[studentId] ?? "P";
-      const next: AttendanceStatus = cur === "P" ? "A" : "P";
+      const idx = Math.max(0, STATUS_ORDER.indexOf(cur));
+      const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
       return { ...prev, [studentId]: next };
     });
   };
@@ -673,12 +676,51 @@ const isPremiumValid = useCallback(async () => {
             ) : null}
 
             <Text style={styles.sectionTitle}>Students</Text>
-            <Text style={styles.subtleSmall}>Tap a student to toggle Present/Absent.</Text>
+            <Text style={styles.subtleSmall}>Tap a student to cycle status (Present → Absent → Leave → Sick).</Text>
           </View>
         }
         renderItem={({ item }) => {
           const status = statusByStudentId[item.id] ?? "P";
-          const isAbsent = status === "A";
+
+          const statusLabel = (() => {
+            switch (status) {
+              case "A":
+                return "Absent";
+              case "L":
+                return "Leave";
+              case "S":
+                return "Sick";
+              default:
+                return "Present";
+            }
+          })();
+
+          const statusPillStyle = (() => {
+            switch (status) {
+              case "A":
+                return styles.statusAbsent;
+              case "L":
+                return styles.statusLeave;
+              case "S":
+                return styles.statusSick;
+              default:
+                return styles.statusPresent;
+            }
+          })();
+
+          const statusTextStyle = (() => {
+            switch (status) {
+              case "A":
+                return styles.statusTextAbsent;
+              case "L":
+                return styles.statusTextLeave;
+              case "S":
+                return styles.statusTextSick;
+              default:
+                return styles.statusTextPresent;
+            }
+          })();
+
           return (
             <Pressable
               onPress={() => toggleStatus(item.id)}
@@ -698,19 +740,9 @@ const isPremiumValid = useCallback(async () => {
                 )}
               </View>
 
-              <View
-                style={[
-                  styles.statusPill,
-                  isAbsent ? styles.statusAbsent : styles.statusPresent,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusText,
-                    isAbsent ? styles.statusTextAbsent : styles.statusTextPresent,
-                  ]}
-                >
-                  {isAbsent ? "Absent" : "Present"}
+              <View style={[styles.statusPill, statusPillStyle]}>
+                <Text style={[styles.statusText, statusTextStyle]}>
+                  {statusLabel}
                 </Text>
               </View>
             </Pressable>
@@ -896,9 +928,13 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
   statusPresent: { backgroundColor: "#ECFDF3", borderColor: "#ABEFC6" },
   statusAbsent: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  statusLeave: { backgroundColor: "#FFFAEB", borderColor: "#FCD34D" },
+  statusSick: { backgroundColor: "#EEF2FF", borderColor: "#C7D2FE" },
   statusText: { fontWeight: "900", fontSize: 12 },
   statusTextPresent: { color: "#067647" },
   statusTextAbsent: { color: "#B42318" },
+  statusTextLeave: { color: "#B54708" },
+  statusTextSick: { color: "#4338CA" },
 
   emptyTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
 });

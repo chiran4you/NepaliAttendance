@@ -271,17 +271,23 @@ export default function ReportsScreen() {
 
       const presentDates: string[] = [];
       const absentDates: string[] = [];
+      const leaveDates: string[] = [];
+      const sickDates: string[] = [];
       const unmarkedDates: string[] = [];
 
       for (const r of sessionRows) {
         if (r.status === "P") presentDates.push(r.dateBs);
         else if (r.status === "A") absentDates.push(r.dateBs);
+        else if (r.status === "L") leaveDates.push(r.dateBs);
+        else if (r.status === "S") sickDates.push(r.dateBs);
         else unmarkedDates.push(r.dateBs);
       }
 
       return {
         presentDates,
         absentDates,
+        leaveDates,
+        sickDates,
         unmarkedDates,
         totalSessions: sessionRows.length,
       };
@@ -307,6 +313,67 @@ export default function ReportsScreen() {
     },
     [loadStudentMonthDetails]
   );
+const EXPORT_DIR_KEY = "ATTENDANCE_EXPORT_DIR_URI";
+
+async function saveCsvToDownloads(fileName: string, csv: string) {
+  // Android: use Storage Access Framework so user chooses folder once
+  if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
+    const cached = await AsyncStorage.getItem(EXPORT_DIR_KEY);
+
+    const writeToDir = async (dirUri: string) => {
+      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        dirUri,
+        fileName,
+        "text/csv"
+      );
+      await FileSystem.writeAsStringAsync(fileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      // Optional share copy
+      try {
+        if (Sharing && (await Sharing.isAvailableAsync())) {
+          const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
+          await FileSystem.writeAsStringAsync(shareUri, csv, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+          await Sharing.shareAsync(shareUri);
+        }
+      } catch {
+        // ignore share errors
+      }
+    };
+
+    if (cached) {
+      try {
+        await writeToDir(cached);
+        return;
+      } catch {
+        await AsyncStorage.removeItem(EXPORT_DIR_KEY);
+      }
+    }
+
+    const perm =
+      await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!perm.granted) {
+      throw new Error("Folder permission not granted.");
+    }
+    await AsyncStorage.setItem(EXPORT_DIR_KEY, perm.directoryUri);
+    await writeToDir(perm.directoryUri);
+    return;
+  }
+
+  // iOS / others: save to cache and share
+  const uri = `${FileSystem.cacheDirectory}${fileName}`;
+  await FileSystem.writeAsStringAsync(uri, csv, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  if (Sharing && (await Sharing.isAvailableAsync())) {
+    await Sharing.shareAsync(uri);
+  } else {
+    Alert.alert("Saved", `Saved to: ${uri}`);
+  }
+}
 
   async function exportCsv() {
     if (!tenantId || !selectedClass) return;
@@ -328,166 +395,91 @@ export default function ReportsScreen() {
       return;
     }
 
-    if (rows.length === 0) {
-      Alert.alert("Nothing to export", "No data found for this month.");
-      return;
-    }
+    // Match the sample export:
+    // - No missing days (all dates in the BS month are present)
+    // - Saturdays show "Saturday"
+    // - Holidays show the holiday title (entered by the class teacher)
+    // - Attendance Percentage is exported as a human-friendly percent (e.g. 81.3%)
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+
+    const formatPercent = (attended: number, held: number) => {
+      const pct = held ? round1((attended / held) * 100) : 0;
+      // Avoid showing trailing .0
+      return `${Number.isInteger(pct) ? String(pct) : pct.toFixed(1)}%`;
+    };
 
     try {
-      const header = [
-        "BS Month",
-        "Class",
-        "Section",
-        "Roll No",
-        "Student Name",
-        "Present",
-        "Absent",
-        "Total",
-        "Percentage",
-      ];
+      const { buildMonthlyMatrix, dateColLabel } = await import("../../src/db/reportRepo");
 
-      const className = selectedClass.name ?? "";
-      const section = (selectedClass as any).section ?? "";
-
-      const csv = [
-        header.map(csvEscape).join(","),
-        ...rows.map((r) =>
-          [
-            monthBs,
-            className,
-            section,
-            r.rollNo,
-            r.name,
-            r.present,
-            r.absent,
-            r.total,
-            `${r.percentage}%`,
-          ]
-            .map(csvEscape)
-            .join(",")
-        ),
-      ].join("\n");
-
-      const safeClass = String(className).replace(/[^a-z0-9_-]+/gi, "_");
-      const safeSection = String(section).replace(/[^a-z0-9_-]+/gi, "_");
-      const ym = monthBs; // "YYYY-MM" in BS
-      const fileName = `NepaliAttendance_${safeClass}${safeSection ? `_${safeSection}` : ""}_${ym}.csv`;
-
-      // ✅ Android: prefer previously chosen folder; ask again only if needed (Storage Access Framework)
-if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
-  const EXPORT_DIR_KEY = "reports_export_dir_uri";
-
-  // 1) Try previously saved directory
-  const savedDirUri = await AsyncStorage.getItem(EXPORT_DIR_KEY);
-  if (savedDirUri) {
-    try {
-      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-        savedDirUri,
-        fileName,
-        "text/csv"
-      );
-      await FileSystem.writeAsStringAsync(fileUri, csv, {
-        encoding: FileSystem.EncodingType.UTF8,
+      const { sessions, students, statusMap } = await buildMonthlyMatrix({
+        tenantId,
+        classId: selectedClass.id,
+        monthBs,
       });
-      Alert.alert("Exported", "CSV saved to your previously selected folder.");
-      // Also create a shareable copy (file://) and open share sheet
-try {
-  if (Sharing && (await Sharing.isAvailableAsync())) {
-    const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
-    await FileSystem.writeAsStringAsync(shareUri, csv, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    await Sharing.shareAsync(shareUri, {
-      mimeType: "text/csv",
-      dialogTitle: "Share CSV",
-    });
-  }
-} catch (e) {
-  // Ignore share errors; export already succeeded.
-}
-            return;
-    } catch (e) {
-      // Directory permission may have been revoked; clear and re-prompt below.
-      await AsyncStorage.removeItem(EXPORT_DIR_KEY);
-    }
-  }
 
-  // 2) Ask user to pick a folder (first time or after revoke)
-  const perm =
-    await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-  if (perm.granted) {
-    await AsyncStorage.setItem(EXPORT_DIR_KEY, perm.directoryUri);
-
-    const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-      perm.directoryUri,
-      fileName,
-      "text/csv"
-    );
-    await FileSystem.writeAsStringAsync(fileUri, csv, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    Alert.alert("Exported", "CSV saved to the folder you selected.");
-    // Also create a shareable copy (file://) and open share sheet
-try {
-  if (Sharing && (await Sharing.isAvailableAsync())) {
-    const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
-    await FileSystem.writeAsStringAsync(shareUri, csv, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    await Sharing.shareAsync(shareUri, {
-      mimeType: "text/csv",
-      dialogTitle: "Share CSV",
-    });
-  }
-} catch (e) {
-  // Ignore share errors; export already succeeded.
-}
-          return;
-  }
-  // If user cancels folder selection, we fall back to sharing.
-}
-
-// ✅ Fallback: write into cache/document directory, then share
-      const baseDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
-      if (baseDir) {
-        const fileUri = baseDir + fileName;
-        await FileSystem.writeAsStringAsync(fileUri, csv, {
-          encoding: FileSystem.EncodingType.UTF8,
-        });
-
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: "text/csv",
-            dialogTitle: "Export Monthly Attendance CSV",
-            UTI: "public.comma-separated-values-text",
-          });
-          return;
-        }
-
-        // Sharing not available: at least tell user where it was saved.
-        Alert.alert("Saved", `CSV saved to app storage.\n\nPath:\n${fileUri}`);
+      if (students.length === 0) {
+        Alert.alert("Nothing to export", "No students found for this class.");
         return;
       }
 
-      // ❌ If we reached here, something is wrong: no writable directory was available.
-      // We avoid sharing as plain text because users need a real CSV file.
-      const diag = [
-        `Platform: ${Platform.OS}`,
-        `StorageAccessFramework: ${!!FileSystem.StorageAccessFramework}`,
-        `cacheDirectory: ${String(FileSystem.cacheDirectory)}`,
-        `documentDirectory: ${String(FileSystem.documentDirectory)}`,
-        `SharingAvailable: ${await Sharing.isAvailableAsync().catch(() => false)}`,
-      ].join("\n");
+      const dateCols = sessions.map((s) => dateColLabel(s.dateBs));
+      const header = [
+        "Roll",
+        "Name",
+        "Classes Held",
+        "Classes Attended",
+        "Attendance Percentage",
+        ...dateCols,
+      ];
 
-      Alert.alert(
-        "Export failed",
-        "Could not find a writable folder to create a CSV file.\n\n" +
-          "Fix: install expo-file-system + expo-sharing, then rebuild the app (APK/dev build).\n\n" +
-          diag
-      );
-      return;
-} catch (e: any) {
-      Alert.alert("Export failed", e?.message ?? "Could not export CSV");
+      const csvRows: string[] = [];
+      csvRows.push(header.map(csvEscape).join(","));
+
+      const classesHeld = sessions.filter((s: any) => (s?.dayType ?? "CLASS") === "CLASS").length;
+
+      for (const st of students) {
+        let attended = 0;
+        const cells: string[] = [];
+
+        for (const s of sessions as any[]) {
+          const dt = (s as any)?.dayType ?? "CLASS";
+
+          if (dt === "WEEKLY_OFF") {
+            cells.push("Saturday");
+            continue;
+          }
+
+          if (dt === "HOLIDAY") {
+            // Prefer teacher-entered title. If missing for some reason, fall back to "Holiday".
+            const title = String((s as any)?.holidayTitle ?? "").trim();
+            cells.push(title || "Holiday");
+            continue;
+          }
+
+          const key = `${st.id}__${s.dateBs}`;
+          const status = String(statusMap.get(key) ?? "").toUpperCase();
+          if (status === "P") attended += 1;
+          if (status === "A" || status === "P" || status === "L" || status === "S") {
+            cells.push(status);
+          } else {
+            cells.push("");
+          }
+        }
+
+        const pct = formatPercent(attended, classesHeld);
+
+        const row = [st.rollNo, st.name, classesHeld, attended, pct, ...cells];
+        csvRows.push(row.map(csvEscape).join(","));
+      }
+
+      const className = selectedClass.name ?? "";
+      const csv = csvRows.join("\n");
+      const fileName = `🏫${className}_Attendance_Report_${monthBs}.csv`;
+
+      await saveCsvToDownloads(fileName, csv);
+      Alert.alert("Exported", `Saved: ${fileName}`);
+    } catch (e: any) {
+      Alert.alert("Export failed", e?.message ?? "Could not export CSV.");
     }
   }
 
@@ -539,6 +531,14 @@ try {
                     <View style={styles.detailBadge}>
                       <Text style={styles.detailBadgeValue}>{detail.absentDates.length}</Text>
                       <Text style={styles.detailBadgeLabel}>Absent</Text>
+                    </View>
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeValue}>{detail.leaveDates.length}</Text>
+                      <Text style={styles.detailBadgeLabel}>Leave</Text>
+                    </View>
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeValue}>{detail.sickDates.length}</Text>
+                      <Text style={styles.detailBadgeLabel}>Sick</Text>
                     </View>
                     <View style={styles.detailBadge}>
                       <Text style={styles.detailBadgeValue}>{detail.unmarkedDates.length}</Text>

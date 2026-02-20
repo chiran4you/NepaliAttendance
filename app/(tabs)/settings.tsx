@@ -271,7 +271,7 @@ export default function SettingsScreen() {
             Support: iamchiran4you@gmail.com
           </Text>
           <Text style={styles.aboutText}>
-            Website:
+            WhatsApp/Call:9811990099/9705449944
           </Text>
         </View>
       </ScrollView>

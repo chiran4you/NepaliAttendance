@@ -25,12 +25,22 @@ export async function listStudents(tenantId: string, classId: string): Promise<S
 
 export async function getNextRollNo(tenantId: string, classId: string): Promise<number> {
   const db = await getDb();
-  const row = await db.getFirstAsync<{ m: number }>(
-    `SELECT MAX(rollNo) as m FROM students WHERE tenantId = ? AND classId = ?`,
+
+  const rows = await db.getAllAsync<{ rollNo: number }>(
+    `SELECT rollNo FROM students
+     WHERE tenantId = ? AND classId = ?
+     ORDER BY rollNo ASC`,
     [tenantId, classId]
   );
-  return (row?.m ?? 0) + 1;
+
+  let expected = 1;
+  for (const r of rows) {
+    if (r.rollNo !== expected) return expected; // gap found
+    expected++;
+  }
+  return expected; // no gaps -> next new roll
 }
+
 
 export async function addStudentAutoRoll(s: Omit<StudentItem, "rollNo">) {
   const db = await getDb();
@@ -53,6 +63,39 @@ export async function addStudentAutoRoll(s: Omit<StudentItem, "rollNo">) {
     ]
   );
 }
+
+
+export async function addStudentManualRoll(s: StudentItem) {
+  const db = await getDb();
+
+  const exists = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM students
+     WHERE tenantId = ? AND classId = ? AND rollNo = ?`,
+    [s.tenantId, s.classId, s.rollNo]
+  );
+
+  if ((exists?.c ?? 0) > 0) {
+    throw new Error(`Roll number ${s.rollNo} is already taken.`);
+  }
+
+  await db.runAsync(
+    `INSERT INTO students (id, tenantId, classId, rollNo, name, dob, parentName, phone, address, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      s.id,
+      s.tenantId,
+      s.classId,
+      s.rollNo,
+      s.name,
+      s.dob ?? null,
+      s.parentName ?? null,
+      s.phone ?? null,
+      s.address ?? null,
+      s.createdAt,
+    ]
+  );
+}
+
 
 
 
