@@ -4,14 +4,18 @@
  * Validates user-entered license code format.
  */
 export function validateLicenseCode(code: string): boolean {
-  // Accept codes like: NA-22AB-339F-7896 (4-4-4 segments)
+  // Accept codes like: NA-22AB-339F-7896
   const normalized = code.trim().toUpperCase();
   return /^NA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalized);
 }
 
 /**
  * Minimal entitlement shape used across the app.
- * (Some fields may be absent depending on backend/app version.)
+ *
+ * Notes:
+ * - expiresAt is the only field used for expiry validation.
+ * - lastVerifiedAt and graceUntil are kept only for backward compatibility
+ *   with older cached/server payloads.
  */
 export type PremiumEntitlementLike = {
   premium: boolean;
@@ -25,31 +29,19 @@ export type PremiumEntitlementLike = {
  * Rules:
  *  - must have premium=true
  *  - if expiresAt is set and now > expiresAt => invalid
- *  - if graceUntil is set and now > graceUntil => invalid (stronger, explicit offline cutoff)
- *  - else if lastVerifiedAt is set and now-lastVerifiedAt > graceDays => invalid
+ *  - otherwise valid
  */
 export function validatePremiumEntitlement(
-  ent: PremiumEntitlementLike | null,
-  opts?: { now?: number; graceDays?: number }
-): { valid: boolean; reason: "inactive" | "expired" | "grace_expired" | "ok" } {
-  if (!ent || !ent.premium) return { valid: false, reason: "inactive" };
+  ent: PremiumEntitlementLike | null
+): { valid: boolean; reason: "inactive" | "expired" | "ok" } {
+  if (!ent || !ent.premium) {
+    return { valid: false, reason: "inactive" };
+  }
 
-  const now = opts?.now ?? Date.now();
+  const now = Date.now();
 
   if (typeof ent.expiresAt === "number" && now > ent.expiresAt) {
     return { valid: false, reason: "expired" };
-  }
-
-  if (typeof ent.graceUntil === "number" && now > ent.graceUntil) {
-    return { valid: false, reason: "grace_expired" };
-  }
-
-  const graceDays = opts?.graceDays ?? 14;
-  if (typeof ent.lastVerifiedAt === "number") {
-    const graceMs = graceDays * 24 * 60 * 60 * 1000;
-    if (now - ent.lastVerifiedAt > graceMs) {
-      return { valid: false, reason: "grace_expired" };
-    }
   }
 
   return { valid: true, reason: "ok" };

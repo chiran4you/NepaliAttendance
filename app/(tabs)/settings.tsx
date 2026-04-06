@@ -152,14 +152,14 @@ export default function SettingsScreen() {
         <View style={styles.card}>
           <View style={styles.cardTopRow}>
             <Text style={styles.cardTitle}>Premium</Text>
-            <View style={[styles.badge, premiumEnabled ? styles.badgeOn : styles.badgeOff]}>
+            <View style={[styles.badge, isLicenseActive ? styles.badgeOn : styles.badgeOff]}>
               <Text
                 style={[
                   styles.badgeText,
-                  premiumEnabled ? styles.badgeTextOn : styles.badgeTextOff,
+                  isLicenseActive ? styles.badgeTextOn : styles.badgeTextOff,
                 ]}
               >
-                {premiumEnabled ? "ACTIVE" : "LOCKED"}
+                {isLicenseActive ? "ACTIVE" : "LOCKED"}
               </Text>
             </View>
           </View>
@@ -213,8 +213,8 @@ export default function SettingsScreen() {
             </View>
 
             <Text style={styles.hint}>
-              Premium activation requires internet. After activation, premium features can still work
-              offline until the grace period ends.
+              Premium activation requires internet. After activation, premium features remain available
+              until the actual license expiry date.
             </Text>
           </View>
         </View>

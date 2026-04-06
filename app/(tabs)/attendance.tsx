@@ -21,7 +21,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
 import { Colors } from "../../src/constants/colors";
-import { APP_CONFIG } from "../../src/constants/appConfig";
 import { validatePremiumEntitlement } from "../../src/premium/license";
 import { readPremiumEntitlement } from "../../src/premium/readEntitlement";
 import { useTenant } from "../../src/tenant/TenantContext";
@@ -119,10 +118,7 @@ useEffect(() => {
 
 const isPremiumValid = useCallback(async () => {
   const ent = await readPremiumEntitlement();
-  const { valid } = validatePremiumEntitlement(ent, {
-    now: Date.now(),
-    graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
-  });
+  const { valid } = validatePremiumEntitlement(ent);
   return valid;
 }, []);
   const refreshClasses = async (): Promise<{ rows: ClassItem[]; selectedId: string }> => {

@@ -1,4 +1,3 @@
-// src/premium/usePremium.ts
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -19,7 +18,8 @@ export type PremiumEntitlement = {
   // When we last verified online (epoch ms)
   lastVerifiedAt: number;
 
-  // Optional grace period end (epoch ms). If provided, allow premium until graceUntil.
+  // Kept only for backward compatibility with old cached/server payloads.
+  // Not used for validation anymore.
   graceUntil?: number | null;
 
   // Optional raw info from server for debugging
@@ -68,13 +68,9 @@ function normalizeEntitlement(input: any, tenantId: string, deviceId: string): P
 }
 
 function isPremiumActive(ent: PremiumEntitlement | null): boolean {
-  const { valid } = validatePremiumEntitlement(ent, {
-    now: nowMs(),
-    graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
-  });
+  const { valid } = validatePremiumEntitlement(ent);
   return valid;
 }
-
 
 async function getOrCreateDeviceId(): Promise<string> {
   const existing = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -111,12 +107,16 @@ export function usePremium(tenantId: string | null) {
   const statusText = useMemo(() => {
     if (!tenantId) return "No tenant";
     if (!entitlement) return "Not activated";
+
     if (premiumEnabled) {
       if (entitlement.expiresAt == null) return "Active (no expiry)";
       return "Active";
     }
-    // expired
-    if (entitlement.expiresAt != null) return "Expired";
+
+    if (entitlement.premium && entitlement.expiresAt != null && nowMs() > entitlement.expiresAt) {
+      return "Expired";
+    }
+
     return "Locked";
   }, [tenantId, entitlement, premiumEnabled]);
 
@@ -134,12 +134,12 @@ export function usePremium(tenantId: string | null) {
 
     try {
       const obj = JSON.parse(raw);
-      // If entitlement belongs to another tenant, treat as not activated
+
       if (obj?.tenantId && obj.tenantId !== tenantId) {
         setEntitlement(null);
         return;
       }
-      // Ensure deviceId matches (optional)
+
       const normalized = normalizeEntitlement(obj, tenantId, id);
       setEntitlement(normalized);
     } catch {
@@ -159,6 +159,7 @@ export function usePremium(tenantId: string | null) {
   const activate = useCallback(
     async (licenseKey: string) => {
       if (!tenantId) throw new Error("Tenant not ready");
+
       const id = await getOrCreateDeviceId();
       setDeviceId(id);
 
@@ -184,7 +185,6 @@ export function usePremium(tenantId: string | null) {
         appVersion,
       };
 
-      // ✅ Try multiple endpoints so your server can change without breaking app.
       const candidates = [
         `${apiBase}/api/license/activate`,
         `${apiBase}/license/activate`,
@@ -226,25 +226,33 @@ export function usePremium(tenantId: string | null) {
             }
 
             const normalized = normalizeEntitlement(json ?? {}, tenantId, id);
-            const now = Date.now();
+            const now = nowMs();
             const expired = normalized.expiresAt != null && now > normalized.expiresAt;
+
             if (!normalized.premium) {
               throw new Error(json?.error || json?.message || "License invalid or inactive");
             }
+
             if (expired) {
-              // Cache entitlement so UI can show expiry, but reject activation
-              const expiredEnt = { ...normalized, premium: false, note: "Expired" };
+              const expiredEnt: PremiumEntitlement = {
+                ...normalized,
+                tenantId,
+                deviceId: id,
+                lastVerifiedAt: now,
+                premium: true,
+                note: "Expired",
+              };
+
               await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(expiredEnt));
               setEntitlement(expiredEnt);
               throw new Error("License expired");
             }
 
-            const saveObj = {
+            const saveObj: PremiumEntitlement = {
               ...normalized,
-              // always store tenantId/deviceId and verification time
               tenantId,
               deviceId: id,
-              lastVerifiedAt: nowMs(),
+              lastVerifiedAt: now,
             };
 
             await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saveObj));
@@ -252,7 +260,6 @@ export function usePremium(tenantId: string | null) {
             return saveObj;
           } catch (e: any) {
             lastErr = e;
-            // Try next endpoint
           }
         }
 

@@ -22,7 +22,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
 import { Colors } from "../../src/constants/colors";
-import { APP_CONFIG } from "../../src/constants/appConfig";
 import { validatePremiumEntitlement } from "../../src/premium/license";
 import { useTenant } from "../../src/tenant/TenantContext";
 import { listClasses, type ClassItem } from "../../src/db/classRepo";
@@ -35,6 +34,8 @@ import { getDb } from "../../src/db/db";
 type StudentMonthDetails = {
   presentDates: string[];
   absentDates: string[];
+  leaveDates: string[];
+  sickDates: string[];
   unmarkedDates: string[];
   totalSessions: number;
 };
@@ -139,11 +140,7 @@ export default function ReportsScreen() {
 
     (async () => {
       const ent = await readPremiumEntitlement();
-      const now = Date.now();
-      const { valid } = validatePremiumEntitlement(ent, {
-        now,
-        graceDays: APP_CONFIG.PREMIUM_GRACE_DAYS ?? 14,
-      });
+      const { valid } = validatePremiumEntitlement(ent);
       const ok = valid;
 
       if (mounted) setPremiumOk(ok);
@@ -243,7 +240,14 @@ export default function ReportsScreen() {
   const loadStudentMonthDetails = useCallback(
     async (studentId: string): Promise<StudentMonthDetails> => {
       if (!tenantId || !classId) {
-        return { presentDates: [], absentDates: [], unmarkedDates: [], totalSessions: 0 };
+        return {
+          presentDates: [],
+          absentDates: [],
+          leaveDates: [],
+          sickDates: [],
+          unmarkedDates: [],
+          totalSessions: 0,
+        };
       }
 
       const db = await getDb();
