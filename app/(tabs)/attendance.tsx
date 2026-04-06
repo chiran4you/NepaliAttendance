@@ -21,6 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
 import { Colors } from "../../src/constants/colors";
+import { APP_CONFIG } from "../../src/constants/appConfig";
 import { validatePremiumEntitlement } from "../../src/premium/license";
 import { readPremiumEntitlement } from "../../src/premium/readEntitlement";
 import { useTenant } from "../../src/tenant/TenantContext";
@@ -118,8 +119,20 @@ useEffect(() => {
 
 const isPremiumValid = useCallback(async () => {
   const ent = await readPremiumEntitlement();
-  const { valid } = validatePremiumEntitlement(ent);
-  return valid;
+
+  if (!ent) return false;
+  if (!ent.premium) return false;
+
+  const expiresAt =
+    ent.expiresAt === null || ent.expiresAt === undefined
+      ? null
+      : Number(ent.expiresAt);
+
+  if (expiresAt != null && Number.isFinite(expiresAt) && Date.now() > expiresAt) {
+    return false;
+  }
+
+  return true;
 }, []);
   const refreshClasses = async (): Promise<{ rows: ClassItem[]; selectedId: string }> => {
     const rows = await listClasses(tenant.tenantId);
@@ -433,18 +446,37 @@ const isPremiumValid = useCallback(async () => {
     await enqueueSmsBatch(msgs);
     setQueuedCount(await countQueuedForClassAndDate(tenant.tenantId, selectedClassId, bs));
 
-    Alert.alert("Queued", `Queued ${msgs.length} SMS. Auto-send will happen when internet is available.`);
+    const net = await NetInfo.fetch();
+    if (net.isConnected) {
+      await sendQueuedToServer();
+    }
+
+    Alert.alert(
+      "Queued",
+      net.isConnected
+        ? `Queued ${msgs.length} SMS and tried sending now.`
+        : `Queued ${msgs.length} SMS. Auto-send will happen when internet is available.`
+    );
   };
 
   const sendQueuedToServer = async () => {
     const ok = await isPremiumValid();
-    if (!ok) return;
+    if (!ok) {
+      console.log("SMS auto-send skipped: premium invalid");
+      return;
+    }
 
     const baseUrl = (APP_CONFIG as any).SMS_API_BASE_URL || APP_CONFIG.API_BASE_URL;
-    if (!baseUrl) return;
+    if (!baseUrl) {
+      console.log("SMS auto-send skipped: missing SMS/API base URL");
+      return;
+    }
 
     const queued = await listQueued(50);
-    if (queued.length === 0) return;
+    if (queued.length === 0) {
+      console.log("SMS auto-send skipped: no queued messages");
+      return;
+    }
 
     // Only send rows for classes that have SMS enabled (per class)
     const filtered = [];
@@ -474,6 +506,7 @@ const isPremiumValid = useCallback(async () => {
         for (const m of filtered) {
           await markFailed(m.id, text || `HTTP ${res.status}`);
         }
+        Alert.alert("SMS failed", text || `HTTP ${res.status}`);
         return;
       }
 
@@ -484,8 +517,8 @@ const isPremiumValid = useCallback(async () => {
           await countQueuedForClassAndDate(tenant.tenantId, selectedClassId, dateBs)
         );
       }
-    } catch {
-      // network error: keep queued for later
+    } catch (e: any) {
+      Alert.alert("SMS send error", e?.message ?? "Network error");
     } finally {
       setAutoSending(false);
     }
