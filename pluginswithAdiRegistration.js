@@ -9,9 +9,21 @@ module.exports = function withAdiRegistration(config) {
       const projectRoot = config.modRequest.projectRoot;
       const platformRoot = config.modRequest.platformProjectRoot;
 
-      const source = path.join(projectRoot, "assets", "adi-registration.properties");
+      const sourceFile = path.join(
+        projectRoot,
+        "assets",
+        "adi-registration.properties"
+      );
 
-      const destinationDir = path.join(
+      if (!fs.existsSync(sourceFile)) {
+        throw new Error(
+          "Google Play verification file not found:\n" +
+          sourceFile +
+          "\n\nExpected location:\nassets/adi-registration.properties"
+        );
+      }
+
+      const assetsDir = path.join(
         platformRoot,
         "app",
         "src",
@@ -19,15 +31,18 @@ module.exports = function withAdiRegistration(config) {
         "assets"
       );
 
-      const destination = path.join(
-        destinationDir,
+      fs.mkdirSync(assetsDir, { recursive: true });
+
+      const destinationFile = path.join(
+        assetsDir,
         "adi-registration.properties"
       );
 
-      fs.mkdirSync(destinationDir, { recursive: true });
-      fs.copyFileSync(source, destination);
+      fs.copyFileSync(sourceFile, destinationFile);
 
-      console.log("Copied adi-registration.properties into Android assets.");
+      console.log(
+        "✓ Copied adi-registration.properties into Android assets."
+      );
 
       return config;
     },
