@@ -49,6 +49,20 @@ function monthFromBsDate(dateBs: string): string {
   return String(dateBs).slice(0, 7);
 }
 
+function isFutureBs(bs: string): boolean {
+  try {
+    const selectedDate = new NepaliDate(bs.trim()).toJsDate();
+    selectedDate.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return selectedDate.getTime() > today.getTime();
+  } catch {
+    return false;
+  }
+}
+
 // ✅ IMPORTANT: keep regex on one line (Metro bundler)
 function csvEscape(value: unknown): string {
   const s = String(value ?? "");
@@ -233,6 +247,9 @@ export default function ReportsScreen() {
   }, [rows]);
 
   const onPickDate = (picked: string) => {
+    // Future dates are disabled by maxDate; keep this as a silent safeguard.
+    if (isFutureBs(picked)) return;
+
     setMonthBs(monthFromBsDate(picked));
     setPickerOpen(false);
   };
@@ -497,6 +514,8 @@ async function saveCsvToDownloads(fileName: string, csv: string) {
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onDateSelect={onPickDate}
+        date={`${monthBs}-01`}
+        maxDate={todayBs()}
         brandColor={Colors.primary}
         // @ts-ignore
         language="nepali"

@@ -1,5 +1,5 @@
 // app/(tabs)/settings.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as SQLite from "expo-sqlite";
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
@@ -28,6 +29,41 @@ export default function SettingsScreen() {
   const { tenant, logoutTenant } = useTenant();
 
   const tenantId = tenant.tenantId;
+
+  const SMS_SCHOOL_NAME_KEY = `smsSchoolName:${tenantId}`;
+  const [smsSchoolName, setSmsSchoolName] = useState("");
+  const [savingSmsSchoolName, setSavingSmsSchoolName] = useState(false);
+  const [savedSmsSchoolName, setSavedSmsSchoolName] = useState("");
+
+  useEffect(() => {
+    AsyncStorage.getItem(SMS_SCHOOL_NAME_KEY)
+      .then((savedName) => {
+        const value = (savedName ?? "").trim();
+        setSmsSchoolName(value);
+        setSavedSmsSchoolName(value);
+      })
+      .catch(() => {});
+  }, [SMS_SCHOOL_NAME_KEY]);
+
+  const saveSmsSchoolName = async () => {
+    const shortName = smsSchoolName.trim();
+    if (!shortName) {
+      Alert.alert("Enter SMS school name", "Example: Chhatrapali TSS");
+      return;
+    }
+
+    setSavingSmsSchoolName(true);
+    try {
+      await AsyncStorage.setItem(SMS_SCHOOL_NAME_KEY, shortName);
+      setSmsSchoolName(shortName);
+      setSavedSmsSchoolName(shortName);
+      Alert.alert("Saved", "SMS school name has been saved.");
+    } catch (e: any) {
+      Alert.alert("Save failed", e?.message ?? "Could not save the SMS school name.");
+    } finally {
+      setSavingSmsSchoolName(false);
+    }
+  };
 
   const { loading, premiumEnabled, statusText, deviceId, entitlement, activate, clear } =
     usePremium(tenantId);
@@ -114,6 +150,7 @@ export default function SettingsScreen() {
     try {
       // 1) clear premium cache (AsyncStorage) via existing hook
       await clear();
+      await AsyncStorage.removeItem(SMS_SCHOOL_NAME_KEY);
 
       // 2) delete local SQLite database (classes, students, attendance)
       try {
@@ -140,6 +177,9 @@ export default function SettingsScreen() {
       setResetting(false);
     }
   };
+
+  const smsNameChanged = smsSchoolName.trim() !== savedSmsSchoolName.trim();
+  const canSaveSmsName = !!smsSchoolName.trim() && smsNameChanged && !savingSmsSchoolName;
 
   if (!tenant) return null;
 
@@ -180,7 +220,7 @@ export default function SettingsScreen() {
             placeholder="Paste license key"
             placeholderTextColor={Colors.muted}
             autoCapitalize="characters"
-            style={styles.input}
+            style={[styles.input, !smsNameChanged && !!savedSmsSchoolName && { backgroundColor: "#F8FAFC", color: Colors.textSecondary }]}
           />
 
           <View style={styles.row}>
@@ -212,11 +252,52 @@ export default function SettingsScreen() {
               </Text>
             </View>
 
+            <View style={styles.featureRow}>
+              <Ionicons name="cloud-upload-outline" size={18} color={Colors.primary} />
+              <Text style={styles.featureText}>
+                Import Students (Excel/CSV) • preview • validation
+              </Text>
+            </View>
+
             <Text style={styles.hint}>
               Premium activation requires internet. After activation, premium features remain available
               until the actual license expiry date.
             </Text>
           </View>
+        </View>
+
+        {/* SMS settings */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>SMS Settings</Text>
+
+          <Text style={styles.label}>SMS School Name</Text>
+          <TextInput
+            value={smsSchoolName}
+            onChangeText={setSmsSchoolName}
+            placeholder="Example: Chhatrapali TSS"
+            placeholderTextColor={Colors.muted}
+            autoCapitalize="words"
+            maxLength={25}
+            style={styles.input}
+          />
+
+          <Pressable
+            onPress={saveSmsSchoolName}
+            disabled={!canSaveSmsName}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              !canSaveSmsName && { opacity: 0.45 },
+              pressed && canSaveSmsName && { opacity: 0.9 },
+            ]}
+          >
+            <Text style={styles.primaryBtnText}>
+              {savingSmsSchoolName ? "Saving..." : smsNameChanged ? "Save SMS Name" : "Saved"}
+            </Text>
+          </Pressable>
+
+          <Text style={styles.hint}>
+            Used only in attendance SMS messages. Example: Chhatrapali TSS
+          </Text>
         </View>
 
         {/* Device & data management */}

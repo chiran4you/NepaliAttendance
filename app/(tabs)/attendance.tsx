@@ -64,6 +64,20 @@ function isValidBs(bs: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(bs.trim());
 }
 
+function isFutureBs(bs: string): boolean {
+  try {
+    const selectedDate = new NepaliDate(bs.trim()).toJsDate();
+    selectedDate.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return selectedDate.getTime() > today.getTime();
+  } catch {
+    return false;
+  }
+}
+
 export default function AttendanceScreen() {
   const { tenant } = useTenant();
   const smsAllowedForSchool = !!tenant?.features?.smsAlertsEnabled;
@@ -86,10 +100,12 @@ export default function AttendanceScreen() {
   const [queuedCount, setQueuedCount] = useState(0);
 
   const [smsTemplate, setSmsTemplate] = useState<string>(
-    "Dear Parent, your child {studentName} (class {className}) is absent today. {bsDate} {schoolName}"
+    "{studentName} (class {className})आज विद्यालय अनुपस्थित। {schoolName}"
   );
 
     const SMS_TEMPLATE_KEY = (tenantId: string) => `smsTemplate:${tenantId}`;
+    const SMS_SCHOOL_NAME_KEY = (tenantId: string) => `smsSchoolName:${tenantId}`;
+    const [smsSchoolName, setSmsSchoolName] = useState("");
 
 useEffect(() => {
     if (!tenant?.tenantId) return;
@@ -97,6 +113,9 @@ useEffect(() => {
       .then((v) => {
         if (v && v.trim()) setSmsTemplate(v);
       })
+      .catch(() => {});
+    AsyncStorage.getItem(SMS_SCHOOL_NAME_KEY(tenant.tenantId))
+      .then((v) => setSmsSchoolName(v?.trim() || ""))
       .catch(() => {});
   }, [tenant?.tenantId]);
 
@@ -266,6 +285,11 @@ const isPremiumValid = useCallback(async () => {
         Alert.alert("Invalid BS date", "Please pick a valid Nepali date.");
       return;
     }
+    if (isFutureBs(bs)) {
+      if (showAlerts)
+        Alert.alert("Future date not allowed", "Attendance can only be loaded for today or a past date.");
+      return;
+    }
 
     const rows = await refreshStudents(cid);
     if (rows.length === 0) {
@@ -302,6 +326,10 @@ const isPremiumValid = useCallback(async () => {
     const bs = dateBs.trim();
     if (!isValidBs(bs)) {
       Alert.alert("Invalid BS date", "Please pick a valid Nepali date.");
+      return;
+    }
+    if (isFutureBs(bs)) {
+      Alert.alert("Future date not allowed", "Attendance can only be saved for today or a past date.");
       return;
     }
     if (!dateAd) {
@@ -368,7 +396,10 @@ const isPremiumValid = useCallback(async () => {
   };
 
   const onPickDate = (picked: string) => {
-    // Library returns BS date string (YYYY-MM-DD)
+    // Defensive fallback: maxDate prevents this callback for future dates.
+    // Keep the guard silent in case an invalid value is ever returned.
+    if (isFutureBs(picked)) return;
+
     setDateBs(picked);
     setPickerOpen(false);
   };
@@ -413,6 +444,10 @@ const isPremiumValid = useCallback(async () => {
       Alert.alert("Invalid BS date", "Please pick a valid Nepali date.");
       return;
     }
+    if (isFutureBs(bs)) {
+      Alert.alert("Future date not allowed", "SMS cannot be queued for a future attendance date.");
+      return;
+    }
 
     const absentees = students.filter(
       (s) => (statusByStudentId[s.id] ?? "P") === "A" && !!(s.phone && String(s.phone).trim())
@@ -440,7 +475,7 @@ const isPremiumValid = useCallback(async () => {
         )
         .replaceAll("{rollNo}", String(s.rollNo ?? ""))
         .replaceAll("{bsDate}", String(bs))
-        .replaceAll("{schoolName}", String(tenant.schoolName ?? "")),
+        .replaceAll("{schoolName}", smsSchoolName || String(tenant.schoolName ?? "")),
     }));
 
     await enqueueSmsBatch(msgs);
@@ -544,6 +579,8 @@ const isPremiumValid = useCallback(async () => {
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onDateSelect={onPickDate}
+        date={dateBs}
+        maxDate={todayBs()}
         brandColor={Colors.primary}
       />
 
