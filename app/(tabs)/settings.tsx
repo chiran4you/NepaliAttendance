@@ -348,8 +348,11 @@ export default function SettingsScreen() {
           <Text style={styles.aboutText}>
             Built by Chiran Poudel(NepaliAttendance Team)
           </Text>
+		  <Text style={styles.aboutText}>
+		    Website: https://www.nepaliattendance.com
+		  </Text>
           <Text style={styles.aboutText}>
-            Support: iamchiran4you@gmail.com
+            Support: contact@nepaliattendance.com
           </Text>
           <Text style={styles.aboutText}>
             WhatsApp/Call:9811990099/9705449944
