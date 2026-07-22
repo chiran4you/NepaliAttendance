@@ -17,6 +17,7 @@
     "production": {
       "developmentClient": false,
       "distribution": "store",
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       }
