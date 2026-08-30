@@ -70,6 +70,39 @@ function csvEscape(value: unknown): string {
   return s;
 }
 
+const BS_MONTH_NAMES = [
+  "Baisakh",
+  "Jestha",
+  "Ashadh",
+  "Shrawan",
+  "Bhadra",
+  "Ashwin",
+  "Kartik",
+  "Mangsir",
+  "Poush",
+  "Magh",
+  "Falgun",
+  "Chaitra",
+] as const;
+
+function formatReportMonthBs(monthBs: string): string {
+  const [year, month] = monthBs.split("-");
+  const monthName = BS_MONTH_NAMES[Number(month) - 1];
+  return monthName && year ? `${monthName} ${year} (B.S.)` : `${monthBs} (B.S.)`;
+}
+
+function formatClassWithSection(classItem: ClassItem): string {
+  const name = String(classItem.name ?? "").trim();
+  const section = String((classItem as ClassItem & { section?: string }).section ?? "").trim();
+  const classWithSection = section && !name.toLowerCase().endsWith(section.toLowerCase())
+    ? `${name}${section}`
+    : name;
+
+  return /^grade\b/i.test(classWithSection)
+    ? classWithSection.replace(/^grade\s*[-:]?\s*/i, "Grade - ")
+    : `Grade - ${classWithSection}`;
+}
+
 async function readPremiumEntitlement(): Promise<{
   premium: boolean;
   expiresAt: number | null;
@@ -454,6 +487,18 @@ async function saveCsvToDownloads(fileName: string, csv: string) {
       ];
 
       const csvRows: string[] = [];
+
+      // Report identity rows. CSV cannot merge cells, so the value is placed in
+      // the first cell and the row is padded to the same width as the table.
+      const reportRow = (value: unknown) =>
+        [value, ...Array(Math.max(0, header.length - 1)).fill("")]
+          .map(csvEscape)
+          .join(",");
+
+      csvRows.push(reportRow(tenant.schoolName));
+      csvRows.push(reportRow(tenant.schoolAddress));
+      csvRows.push(reportRow(`Attendance Report - ${formatReportMonthBs(monthBs)}`));
+      csvRows.push(reportRow(formatClassWithSection(selectedClass)));
       csvRows.push(header.map(csvEscape).join(","));
 
       const classesHeld = sessions.filter((s: any) => (s?.dayType ?? "CLASS") === "CLASS").length;
