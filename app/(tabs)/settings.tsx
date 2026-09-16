@@ -28,50 +28,115 @@ const DB_NAME = "nepaliattendance.db";
 export default function SettingsScreen() {
   const { tenant, logoutTenant } = useTenant();
 
-  const tenantId = tenant.tenantId;
+  const tenantId = tenant?.tenantId ?? "";
 
   const SMS_SCHOOL_NAME_KEY = `smsSchoolName:${tenantId}`;
+  const SMS_SCHOOL_NAME_LOCK_KEY = `smsSchoolNameLocked:${tenantId}`;
   const [smsSchoolName, setSmsSchoolName] = useState("");
   const [savingSmsSchoolName, setSavingSmsSchoolName] = useState(false);
   const [savedSmsSchoolName, setSavedSmsSchoolName] = useState("");
+  const [smsSchoolNameLocked, setSmsSchoolNameLocked] = useState(false);
+  const [smsSchoolNameReady, setSmsSchoolNameReady] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(SMS_SCHOOL_NAME_KEY)
-      .then((savedName) => {
+    if (!tenantId) return;
+
+    let mounted = true;
+    Promise.all([
+      AsyncStorage.getItem(SMS_SCHOOL_NAME_KEY),
+      AsyncStorage.getItem(SMS_SCHOOL_NAME_LOCK_KEY),
+    ])
+      .then(async ([savedName, savedLock]) => {
+        if (!mounted) return;
         const value = (savedName ?? "").trim();
+        const shouldLock = savedLock === "1" || !!value;
         setSmsSchoolName(value);
         setSavedSmsSchoolName(value);
-      })
-      .catch(() => {});
-  }, [SMS_SCHOOL_NAME_KEY]);
+        setSmsSchoolNameLocked(shouldLock);
 
-  const saveSmsSchoolName = async () => {
+        // Migration: a name saved by an older app version counts as the one
+        // permitted choice and is locked automatically.
+        if (value && savedLock !== "1") {
+          await AsyncStorage.setItem(SMS_SCHOOL_NAME_LOCK_KEY, "1");
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (mounted) setSmsSchoolNameReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [tenantId, SMS_SCHOOL_NAME_KEY, SMS_SCHOOL_NAME_LOCK_KEY]);
+
+  const persistSmsSchoolName = async (shortName: string) => {
+    setSavingSmsSchoolName(true);
+    try {
+      await AsyncStorage.multiSet([
+        [SMS_SCHOOL_NAME_KEY, shortName],
+        [SMS_SCHOOL_NAME_LOCK_KEY, "1"],
+      ]);
+      setSmsSchoolName(shortName);
+      setSavedSmsSchoolName(shortName);
+      setSmsSchoolNameLocked(true);
+      Alert.alert(
+        "Saved and locked",
+        "The SMS school name cannot be changed again.",
+      );
+    } catch (e: any) {
+      Alert.alert(
+        "Save failed",
+        e?.message ?? "Could not save the SMS school name.",
+      );
+    } finally {
+      setSavingSmsSchoolName(false);
+    }
+  };
+
+  const saveSmsSchoolName = () => {
+    if (smsSchoolNameLocked) {
+      Alert.alert(
+        "SMS school name locked",
+        "This school name has already been saved and cannot be changed.",
+      );
+      return;
+    }
+
     const shortName = smsSchoolName.trim();
     if (!shortName) {
       Alert.alert("Enter SMS school name", "Example: Chhatrapali TSS");
       return;
     }
 
-    setSavingSmsSchoolName(true);
-    try {
-      await AsyncStorage.setItem(SMS_SCHOOL_NAME_KEY, shortName);
-      setSmsSchoolName(shortName);
-      setSavedSmsSchoolName(shortName);
-      Alert.alert("Saved", "SMS school name has been saved.");
-    } catch (e: any) {
-      Alert.alert("Save failed", e?.message ?? "Could not save the SMS school name.");
-    } finally {
-      setSavingSmsSchoolName(false);
-    }
+    Alert.alert(
+      "Save SMS school name permanently?",
+      `Please confirm that “${shortName}” is correct. You can save the SMS school name only once and cannot change it later.`,
+      [
+        { text: "Review", style: "cancel" },
+        {
+          text: "Save & Lock",
+          onPress: () => persistSmsSchoolName(shortName),
+        },
+      ],
+    );
   };
 
-  const { loading, premiumEnabled, statusText, deviceId, entitlement, activate, clear } =
-    usePremium(tenantId);
+  const {
+    loading,
+    premiumEnabled,
+    statusText,
+    deviceId,
+    entitlement,
+    activate,
+    clear,
+  } = usePremium(tenantId);
 
   const [licenseKey, setLicenseKey] = useState("");
   const [activating, setActivating] = useState(false);
 
-  const expired = entitlement?.expiresAt != null && Date.now() > entitlement.expiresAt;
+  const expired =
+    entitlement?.expiresAt != null && Date.now() > entitlement.expiresAt;
   const isLicenseActive = premiumEnabled && !expired;
   // Disable "Activate Online" once activated; enable again if expired offline
   const canActivate = !loading && !activating && !isLicenseActive;
@@ -108,14 +173,17 @@ export default function SettingsScreen() {
     if (!tenantId) return;
 
     if (!licenseKey.trim()) {
-      Alert.alert("Enter license key", "Please paste the license key you received.");
+      Alert.alert(
+        "Enter license key",
+        "Please paste the license key you received.",
+      );
       return;
     }
 
     if (APP_CONFIG.API_BASE_URL.includes("YOUR-SERVER-URL")) {
       Alert.alert(
         "Set your server URL",
-        "Open src/constants/appConfig.ts and set API_BASE_URL to your hosted backend URL."
+        "Open src/constants/appConfig.ts and set API_BASE_URL to your hosted backend URL.",
       );
       return;
     }
@@ -123,7 +191,10 @@ export default function SettingsScreen() {
     setActivating(true);
     try {
       await activate(licenseKey.trim());
-      Alert.alert("Activated", "Premium status verified and saved on this device.");
+      Alert.alert(
+        "Activated",
+        "Premium status verified and saved on this device.",
+      );
       setLicenseKey("");
     } catch (e: any) {
       Alert.alert("Activation failed", e?.message ?? "Please try again.");
@@ -150,7 +221,10 @@ export default function SettingsScreen() {
     try {
       // 1) clear premium cache (AsyncStorage) via existing hook
       await clear();
-      await AsyncStorage.removeItem(SMS_SCHOOL_NAME_KEY);
+      await AsyncStorage.multiRemove([
+        SMS_SCHOOL_NAME_KEY,
+        SMS_SCHOOL_NAME_LOCK_KEY,
+      ]);
 
       // 2) delete local SQLite database (classes, students, attendance)
       try {
@@ -169,7 +243,10 @@ export default function SettingsScreen() {
       // 3) remove tenant activation + go back to setup
       await logoutTenant();
 
-      Alert.alert("Reset complete", "School setup and local data were removed from this device.");
+      Alert.alert(
+        "Reset complete",
+        "School setup and local data were removed from this device.",
+      );
       setResetOpen(false);
     } catch (e: any) {
       Alert.alert("Reset failed", e?.message ?? "Please try again.");
@@ -179,7 +256,12 @@ export default function SettingsScreen() {
   };
 
   const smsNameChanged = smsSchoolName.trim() !== savedSmsSchoolName.trim();
-  const canSaveSmsName = !!smsSchoolName.trim() && smsNameChanged && !savingSmsSchoolName;
+  const canSaveSmsName =
+    smsSchoolNameReady &&
+    !smsSchoolNameLocked &&
+    !!smsSchoolName.trim() &&
+    smsNameChanged &&
+    !savingSmsSchoolName;
 
   if (!tenant) return null;
 
@@ -187,12 +269,20 @@ export default function SettingsScreen() {
     <Screen>
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Premium card */}
         <View style={styles.card}>
           <View style={styles.cardTopRow}>
             <Text style={styles.cardTitle}>Premium</Text>
-            <View style={[styles.badge, isLicenseActive ? styles.badgeOn : styles.badgeOff]}>
+            <View
+              style={[
+                styles.badge,
+                isLicenseActive ? styles.badgeOn : styles.badgeOff,
+              ]}
+            >
               <Text
                 style={[
                   styles.badgeText,
@@ -220,7 +310,14 @@ export default function SettingsScreen() {
             placeholder="Paste license key"
             placeholderTextColor={Colors.muted}
             autoCapitalize="characters"
-            style={[styles.input, !smsNameChanged && !!savedSmsSchoolName && { backgroundColor: "#F8FAFC", color: Colors.textSecondary }]}
+            style={[
+              styles.input,
+              !smsNameChanged &&
+                !!savedSmsSchoolName && {
+                  backgroundColor: "#F8FAFC",
+                  color: Colors.textSecondary,
+                },
+            ]}
           />
 
           <View style={styles.row}>
@@ -234,51 +331,77 @@ export default function SettingsScreen() {
               ]}
             >
               <Text style={styles.primaryBtnText}>
-                {isLicenseActive ? "Activated" : activating ? "Activating..." : "Activate Online"}
+                {isLicenseActive
+                  ? "Activated"
+                  : activating
+                    ? "Activating..."
+                    : "Activate Online"}
               </Text>
             </Pressable>
-          </View><View style={styles.featureBox}>
+          </View>
+          <View style={styles.featureBox}>
             <Text style={styles.featureTitle}>Premium features</Text>
 
             <View style={styles.featureRow}>
-              <Ionicons name="download-outline" size={18} color={Colors.primary} />
+              <Ionicons
+                name="download-outline"
+                size={18}
+                color={Colors.primary}
+              />
               <Text style={styles.featureText}>Export CSV (Reports)</Text>
             </View>
 
             <View style={styles.featureRow}>
-              <Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.primary} />
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={18}
+                color={Colors.primary}
+              />
               <Text style={styles.featureText}>
                 SMS Alerts (Attendance) • per-class toggle • queued offline
               </Text>
             </View>
 
             <View style={styles.featureRow}>
-              <Ionicons name="cloud-upload-outline" size={18} color={Colors.primary} />
+              <Ionicons
+                name="cloud-upload-outline"
+                size={18}
+                color={Colors.primary}
+              />
               <Text style={styles.featureText}>
                 Import Students (Excel/CSV) • preview • validation
               </Text>
             </View>
 
             <Text style={styles.hint}>
-              Premium activation requires internet. After activation, premium features remain available
-              until the actual license expiry date.
+              Premium activation requires internet. After activation, premium
+              features remain available until the actual license expiry date.
             </Text>
           </View>
         </View>
 
         {/* SMS settings */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>SMS Settings</Text>
+          <View style={styles.cardTopRow}>
+            <Text style={styles.cardTitle}>SMS Settings</Text>
+            {smsSchoolNameLocked ? (
+              <View style={styles.lockedBadge}>
+                <Ionicons name="lock-closed" size={12} color="#B42318" />
+                <Text style={styles.lockedBadgeText}>LOCKED</Text>
+              </View>
+            ) : null}
+          </View>
 
           <Text style={styles.label}>SMS School Name</Text>
           <TextInput
             value={smsSchoolName}
             onChangeText={setSmsSchoolName}
+            editable={smsSchoolNameReady && !smsSchoolNameLocked}
             placeholder="Example: Chhatrapali TSS"
             placeholderTextColor={Colors.muted}
             autoCapitalize="words"
             maxLength={25}
-            style={styles.input}
+            style={[styles.input, smsSchoolNameLocked && styles.lockedInput]}
           />
 
           <Pressable
@@ -291,13 +414,36 @@ export default function SettingsScreen() {
             ]}
           >
             <Text style={styles.primaryBtnText}>
-              {savingSmsSchoolName ? "Saving..." : smsNameChanged ? "Save SMS Name" : "Saved"}
+              {savingSmsSchoolName
+                ? "Saving..."
+                : smsSchoolNameLocked
+                  ? "SMS Name Locked"
+                  : "Save SMS Name"}
             </Text>
           </Pressable>
 
-          <Text style={styles.hint}>
-            Used only in attendance SMS messages. Example: Chhatrapali TSS
-          </Text>
+          <View
+            style={
+              smsSchoolNameLocked ? styles.lockedNotice : styles.warningNotice
+            }
+          >
+            <Ionicons
+              name={smsSchoolNameLocked ? "shield-checkmark" : "warning"}
+              size={17}
+              color={smsSchoolNameLocked ? "#067647" : "#B54708"}
+            />
+            <Text
+              style={
+                smsSchoolNameLocked
+                  ? styles.lockedNoticeText
+                  : styles.warningNoticeText
+              }
+            >
+              {smsSchoolNameLocked
+                ? "This name is permanently locked for attendance SMS messages."
+                : "Check the spelling carefully. This name can be saved only once and cannot be changed later."}
+            </Text>
+          </View>
         </View>
 
         {/* Device & data management */}
@@ -306,14 +452,19 @@ export default function SettingsScreen() {
 
           <Pressable
             onPress={openReset}
-            style={({ pressed }) => [styles.dangerBtn, pressed && { opacity: 0.9 }]}
+            style={({ pressed }) => [
+              styles.dangerBtn,
+              pressed && { opacity: 0.9 },
+            ]}
           >
-            <Text style={styles.dangerBtnText}>Reset School & Delete Local Data</Text>
+            <Text style={styles.dangerBtnText}>
+              Reset School & Delete Local Data
+            </Text>
           </Pressable>
 
           <Text style={styles.hint}>
-            Reset will remove: classes, students, attendance, premium cache, and school activation
-            from this device.
+            Reset will remove: classes, students, attendance, premium cache, and
+            school activation from this device.
           </Text>
         </View>
 
@@ -327,7 +478,9 @@ export default function SettingsScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.aboutAppName}>NepaliAttendance</Text>
-              <Text style={styles.aboutSub}>Offline-first attendance for Nepali schools</Text>
+              <Text style={styles.aboutSub}>
+                Offline-first attendance for Nepali schools
+              </Text>
             </View>
           </View>
 
@@ -348,9 +501,9 @@ export default function SettingsScreen() {
           <Text style={styles.aboutText}>
             Built by Chiran Poudel(NepaliAttendance Team)
           </Text>
-		  <Text style={styles.aboutText}>
-		    Website: https://www.nepaliattendance.com
-		  </Text>
+          <Text style={styles.aboutText}>
+            Website: https://www.nepaliattendance.com
+          </Text>
           <Text style={styles.aboutText}>
             Support: contact@nepaliattendance.com
           </Text>
@@ -361,12 +514,23 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* Reset confirmation modal */}
-      <Modal visible={resetOpen} transparent animationType="fade" onRequestClose={() => setResetOpen(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setResetOpen(false)}>
+      <Modal
+        visible={resetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setResetOpen(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setResetOpen(false)}
+        >
           <Pressable style={styles.modalCard} onPress={() => {}}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Reset School</Text>
-              <Pressable onPress={() => setResetOpen(false)} style={styles.modalClose}>
+              <Pressable
+                onPress={() => setResetOpen(false)}
+                style={styles.modalClose}
+              >
                 <Ionicons name="close" size={18} color={Colors.textPrimary} />
               </Pressable>
             </View>
@@ -380,7 +544,9 @@ export default function SettingsScreen() {
               {"\n"}• School activation
             </Text>
 
-            <Text style={[styles.label, { marginTop: 10 }]}>Type RESET to confirm</Text>
+            <Text style={[styles.label, { marginTop: 10 }]}>
+              Type RESET to confirm
+            </Text>
             <TextInput
               value={resetText}
               onChangeText={setResetText}
@@ -393,7 +559,11 @@ export default function SettingsScreen() {
             <View style={[styles.row, { marginTop: 10 }]}>
               <Pressable
                 onPress={() => setResetOpen(false)}
-                style={({ pressed }) => [styles.secondaryBtn, { flex: 1 }, pressed && { opacity: 0.9 }]}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  { flex: 1 },
+                  pressed && { opacity: 0.9 },
+                ]}
                 disabled={resetting}
               >
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
@@ -404,7 +574,9 @@ export default function SettingsScreen() {
                 style={({ pressed }) => [
                   styles.dangerBtn,
                   { flex: 1, marginTop: 0 },
-                  (resetting || resetText.trim().length === 0) && { opacity: 0.7 },
+                  (resetting || resetText.trim().length === 0) && {
+                    opacity: 0.7,
+                  },
                   pressed && { opacity: 0.9 },
                 ]}
                 disabled={resetting}
@@ -447,7 +619,11 @@ const styles = StyleSheet.create({
     }),
   },
 
-  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   cardTitle: { fontSize: 14, fontWeight: "900", color: Colors.textPrimary },
 
   badge: {
@@ -461,6 +637,18 @@ const styles = StyleSheet.create({
   badgeText: { fontWeight: "900", fontSize: 11 },
   badgeTextOn: { color: "#067647" },
   badgeTextOff: { color: "#B42318" },
+  lockedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  lockedBadgeText: { color: "#B42318", fontSize: 10, fontWeight: "900" },
 
   subtle: { color: Colors.textSecondary, lineHeight: 18 },
   subtleSmall: { color: Colors.textSecondary, fontSize: 12 },
@@ -475,6 +663,44 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     color: Colors.textPrimary,
     backgroundColor: "#fff",
+  },
+  lockedInput: {
+    backgroundColor: "#F8FAFC",
+    color: Colors.textSecondary,
+  },
+  warningNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    backgroundColor: "#FFFAEB",
+  },
+  warningNoticeText: {
+    flex: 1,
+    color: "#B54708",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
+  lockedNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ABEFC6",
+    backgroundColor: "#ECFDF3",
+  },
+  lockedNoticeText: {
+    flex: 1,
+    color: "#067647",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
   },
 
   row: { flexDirection: "row", gap: 10, marginTop: 2, alignItems: "center" },
@@ -519,8 +745,18 @@ const styles = StyleSheet.create({
   },
   featureTitle: { fontWeight: "900", color: Colors.textPrimary, fontSize: 13 },
   featureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  featureText: { fontWeight: "800", color: Colors.textPrimary, flex: 1, lineHeight: 18 },
-  hint: { color: Colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 4 },
+  featureText: {
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  hint: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 4,
+  },
 
   dangerBtn: {
     marginTop: 8,
@@ -535,7 +771,12 @@ const styles = StyleSheet.create({
   dangerBtnText: { fontWeight: "900", color: "#B42318" },
 
   // About
-  aboutRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 2 },
+  aboutRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 2,
+  },
   aboutIcon: {
     width: 38,
     height: 38,
@@ -545,7 +786,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   aboutAppName: { fontSize: 14, fontWeight: "900", color: Colors.textPrimary },
-  aboutSub: { marginTop: 2, fontSize: 12, color: Colors.textSecondary, fontWeight: "800" },
+  aboutSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: "800",
+  },
 
   aboutGrid: { flexDirection: "row", gap: 10, marginTop: 8 },
   aboutBox: {
@@ -558,11 +804,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   aboutLabel: { fontSize: 11, fontWeight: "800", color: Colors.textSecondary },
-  aboutValue: { marginTop: 2, fontSize: 13, fontWeight: "900", color: Colors.textPrimary },
+  aboutValue: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "900",
+    color: Colors.textPrimary,
+  },
 
   aboutLine: { height: 1, backgroundColor: Colors.border, marginVertical: 6 },
-  aboutSectionTitle: { fontSize: 12, fontWeight: "900", color: Colors.textPrimary },
-  aboutText: { color: Colors.textSecondary, fontSize: 12, fontWeight: "800", marginTop: 2 },
+  aboutSectionTitle: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: Colors.textPrimary,
+  },
+  aboutText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2,
+  },
 
   // Reset modal
   modalOverlay: {
@@ -578,7 +838,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     padding: 12,
   },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   modalTitle: { fontWeight: "900", color: Colors.textPrimary, fontSize: 14 },
   modalClose: {
     width: 34,
@@ -590,6 +854,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F8FAFC",
   },
-  modalWarn: { marginTop: 10, color: Colors.textPrimary, fontWeight: "800", lineHeight: 18 },
-  modalHint: { marginTop: 10, color: Colors.textSecondary, fontSize: 12, fontWeight: "800" },
+  modalWarn: {
+    marginTop: 10,
+    color: Colors.textPrimary,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  modalHint: {
+    marginTop: 10,
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
 });

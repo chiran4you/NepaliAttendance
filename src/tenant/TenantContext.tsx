@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type TenantFeatures = {
-  /** If false, hide/disable CSV export UI for this tenant even if premium exists */
+  /** If false, hide/disable Excel export UI for this tenant even if premium exists */
   csvExportEnabled: boolean;
   /** If false, hide/disable SMS alerts UI for this tenant even if premium exists */
   smsAlertsEnabled: boolean;

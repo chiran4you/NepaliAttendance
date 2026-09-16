@@ -134,6 +134,24 @@ useEffect(() => {
     [classes, selectedClassId]
   );
 
+  const attendanceInsights = useMemo(() => {
+    const total = students.length;
+    let absent = 0;
+
+    for (const student of students) {
+      const status = statusByStudentId[student.id] ?? "P";
+      if (status === "A" || status === "L" || status === "S") absent += 1;
+    }
+
+    return {
+      present: total - absent,
+      absent,
+      total,
+    };
+  }, [students, statusByStudentId]);
+
+  const insightsTitle = dateBs.trim() === todayBs() ? "Today's Insights" : "Attendance Insights";
+
 
 
 const isPremiumValid = useCallback(async () => {
@@ -710,6 +728,38 @@ const isPremiumValid = useCallback(async () => {
             </View>
 
             {!!selectedClassId && students.length > 0 ? (
+              <View style={styles.insightsCard}>
+                <View style={styles.insightsHeader}>
+                  <Text style={styles.sectionTitle}>{insightsTitle}</Text>
+                  <Text style={styles.insightsDate}>{dateBs}</Text>
+                </View>
+
+                <View style={styles.insightsRow}>
+                  <View style={[styles.insightItem, styles.presentInsight]}>
+                    <Text style={[styles.insightCount, styles.presentInsightText]}>
+                      {attendanceInsights.present}
+                    </Text>
+                    <Text style={[styles.insightLabel, styles.presentInsightText]}>Present</Text>
+                  </View>
+
+                  <View style={[styles.insightItem, styles.absentInsight]}>
+                    <Text style={[styles.insightCount, styles.absentInsightText]}>
+                      {attendanceInsights.absent}
+                    </Text>
+                    <Text style={[styles.insightLabel, styles.absentInsightText]}>Absent</Text>
+                  </View>
+
+                  <View style={[styles.insightItem, styles.totalInsight]}>
+                    <Text style={[styles.insightCount, styles.totalInsightText]}>
+                      {attendanceInsights.total}
+                    </Text>
+                    <Text style={[styles.insightLabel, styles.totalInsightText]}>Total Students</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {!!selectedClassId && students.length > 0 ? (
               <View style={styles.actionsRow}>
                 <Pressable
                   onPress={() => markAll("P")}
@@ -887,6 +937,51 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+
+  insightsCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 8 },
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
+  },
+  insightsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  insightsDate: { fontSize: 12, fontWeight: "800", color: Colors.textSecondary },
+  insightsRow: { flexDirection: "row", gap: 8 },
+  insightItem: {
+    flex: 1,
+    minHeight: 82,
+    paddingHorizontal: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  insightCount: { fontSize: 24, fontWeight: "900" },
+  insightLabel: { marginTop: 4, fontSize: 11, fontWeight: "800", textAlign: "center" },
+  presentInsight: { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" },
+  presentInsightText: { color: "#2563EB" },
+  absentInsight: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  absentInsightText: { color: "#EF4444" },
+  totalInsight: { backgroundColor: "#F8FAFC", borderColor: "#CBD5E1" },
+  totalInsightText: { color: "#475569" },
 
   // --- SMS Styles ---
   smsCard: {

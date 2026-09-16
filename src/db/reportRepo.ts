@@ -14,12 +14,23 @@ export type MonthlyStudentSummary = {
   percentage: number; // rounded to 2 decimals
 };
 
+export type StudentMonthDetails = {
+  presentDates: string[];
+  absentDates: string[];
+  leaveDates: string[];
+  sickDates: string[];
+  totalSessions: number;
+};
+
 function roundTo(value: number, decimals: number) {
   const f = Math.pow(10, decimals);
   return Math.round(value * f) / f;
 }
 
-export function formatAttendancePercentage(present: number, totalHeld: number): number {
+export function formatAttendancePercentage(
+  present: number,
+  totalHeld: number,
+): number {
   if (!totalHeld) return 0;
   return roundTo((present / totalHeld) * 100, 2);
 }
@@ -44,7 +55,7 @@ export async function ensureMonthSessions(params: {
 
   const holidayRows = await db.getAllAsync<{ dateBs: string }>(
     `SELECT dateBs FROM holidays WHERE tenantId = ? AND dateBs LIKE ?;`,
-    [tenantId, `${monthBs}-%`]
+    [tenantId, `${monthBs}-%`],
   );
   const holidaySet = new Set((holidayRows ?? []).map((h) => h.dateBs));
 
@@ -55,7 +66,11 @@ export async function ensureMonthSessions(params: {
     if (!bs.startsWith(`${monthBs}-`)) break;
 
     const isSaturday = js.getDay() === 6;
-    const dayType: DayType = holidaySet.has(bs) ? "HOLIDAY" : isSaturday ? "WEEKLY_OFF" : "CLASS";
+    const dayType: DayType = holidaySet.has(bs)
+      ? "HOLIDAY"
+      : isSaturday
+        ? "WEEKLY_OFF"
+        : "CLASS";
 
     const id = `${tenantId}_${classId}_${bs}`;
     await db.runAsync(
@@ -68,7 +83,7 @@ export async function ensureMonthSessions(params: {
         dayType = excluded.dayType,
         updatedAt = excluded.updatedAt;
       `,
-      [id, tenantId, classId, bs, toIsoDate(js), dayType, now, now]
+      [id, tenantId, classId, bs, toIsoDate(js), dayType, now, now],
     );
 
     js = new Date(js.getTime() + 24 * 60 * 60 * 1000);
@@ -118,7 +133,7 @@ export async function getMonthlyAttendanceSummary(params: {
     GROUP BY s.id, s.rollNo, s.name
     ORDER BY s.rollNo ASC;
     `,
-    [`${monthBs}-%`, tenantId, classId]
+    [`${monthBs}-%`, tenantId, classId],
   );
 
   return (rows ?? []).map((r) => {
@@ -140,6 +155,50 @@ export async function getMonthlyAttendanceSummary(params: {
       percentage,
     };
   });
+}
+
+export async function getStudentMonthDetails(params: {
+  tenantId: string;
+  classId: string;
+  studentId: string;
+  monthBs: string;
+}): Promise<StudentMonthDetails> {
+  const { tenantId, classId, studentId, monthBs } = params;
+  const db = await getDb();
+
+  const records = await db.getAllAsync<{ dateBs: string; status: string }>(
+    `
+    SELECT asess.dateBs AS dateBs, ar.status AS status
+    FROM attendance_sessions asess
+    JOIN attendance_records ar
+      ON ar.sessionId = asess.id
+     AND ar.studentId = ?
+    WHERE asess.tenantId = ?
+      AND asess.classId = ?
+      AND asess.dateBs LIKE ?
+      AND COALESCE(asess.dayType, 'CLASS') = 'CLASS'
+      AND ar.status IN ('P', 'A', 'L', 'S')
+    ORDER BY asess.dateBs ASC;
+    `,
+    [studentId, tenantId, classId, `${monthBs}-%`],
+  );
+
+  const details: StudentMonthDetails = {
+    presentDates: [],
+    absentDates: [],
+    leaveDates: [],
+    sickDates: [],
+    totalSessions: records.length,
+  };
+
+  for (const record of records) {
+    if (record.status === "P") details.presentDates.push(record.dateBs);
+    else if (record.status === "A") details.absentDates.push(record.dateBs);
+    else if (record.status === "L") details.leaveDates.push(record.dateBs);
+    else if (record.status === "S") details.sickDates.push(record.dateBs);
+  }
+
+  return details;
 }
 
 export type MatrixCell = "P" | "A" | "L" | "S" | "WO" | "H" | "";
@@ -177,29 +236,40 @@ export async function buildMonthlyMatrix(params: {
     WHERE asess.tenantId = ? AND asess.classId = ? AND asess.dateBs LIKE ?
     ORDER BY asess.dateBs ASC;
     `,
-    [tenantId, classId, `${monthBs}-%`]
+    [tenantId, classId, `${monthBs}-%`],
   );
 
-  const students = await db.getAllAsync<{ id: string; rollNo: number; name: string }>(
+  const students = await db.getAllAsync<{
+    id: string;
+    rollNo: number;
+    name: string;
+  }>(
     `SELECT id, rollNo, name FROM students
      WHERE tenantId = ? AND classId = ?
      ORDER BY rollNo ASC;`,
-    [tenantId, classId]
+    [tenantId, classId],
   );
 
-  const recs = await db.getAllAsync<{ dateBs: string; studentId: string; status: string }>(
+  const recs = await db.getAllAsync<{
+    dateBs: string;
+    studentId: string;
+    status: string;
+  }>(
     `
     SELECT asess.dateBs as dateBs, ar.studentId as studentId, ar.status as status
     FROM attendance_sessions asess
     JOIN attendance_records ar ON ar.sessionId = asess.id
     WHERE asess.tenantId = ? AND asess.classId = ? AND asess.dateBs LIKE ?;
     `,
-    [tenantId, classId, `${monthBs}-%`]
+    [tenantId, classId, `${monthBs}-%`],
   );
 
   const statusMap = new Map<string, string>();
   for (const r of recs ?? []) {
-    statusMap.set(`${r.studentId}__${r.dateBs}`, String(r.status ?? "").toUpperCase());
+    statusMap.set(
+      `${r.studentId}__${r.dateBs}`,
+      String(r.status ?? "").toUpperCase(),
+    );
   }
 
   return { sessions: sessions ?? [], students: students ?? [], statusMap };
@@ -207,7 +277,8 @@ export async function buildMonthlyMatrix(params: {
 
 export function formatPercentString(p: number): string {
   // If integer, no decimals. Else 2 decimals.
-  if (Number.isFinite(p) && Math.abs(p - Math.round(p)) < 1e-9) return `${Math.round(p)}%`;
+  if (Number.isFinite(p) && Math.abs(p - Math.round(p)) < 1e-9)
+    return `${Math.round(p)}%`;
   return `${p.toFixed(2)}%`;
 }
 
