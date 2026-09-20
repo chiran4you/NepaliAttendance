@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 
@@ -143,11 +143,12 @@ export async function createAndShareStudentTemplate(): Promise<void> {
   XLSX.utils.book_append_sheet(workbook, instructionSheet, "Instructions");
 
   const base64 = XLSX.write(workbook, { type: "base64", bookType: "xlsx" });
-  const uri = `${FileSystem.cacheDirectory}NepaliAttendance_Student_Import_Template.xlsx`;
-  await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
+  const file = new File(Paths.cache, "NepaliAttendance_Student_Import_Template.xlsx");
+  file.create({ overwrite: true, intermediates: true });
+  file.write(base64, { encoding: "base64" });
 
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing is not available on this device.");
-  await Sharing.shareAsync(uri, {
+  await Sharing.shareAsync(file.uri, {
     mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     dialogTitle: "Save student import template",
     UTI: "org.openxmlformats.spreadsheetml.sheet",

@@ -13,17 +13,18 @@ import {
 } from "react-native";
 import NepaliDate from "nepali-date-converter";
 import { Ionicons } from "@expo/vector-icons";
-import { CalendarPicker } from "react-native-nepali-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
+import * as LegacyFileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
 import { Buffer } from "buffer";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
+import NepaliDatePicker from "../../src/components/NepaliDatePicker";
 import { Colors } from "../../src/constants/colors";
 import { validatePremiumEntitlement } from "../../src/premium/license";
 import { useTenant } from "../../src/tenant/TenantContext";
@@ -81,6 +82,20 @@ function formatReportMonthBs(monthBs: string): string {
     : `${monthBs} (B.S.)`;
 }
 
+type ReportMode = "monthly" | "academic";
+
+function academicMonthsForYear(yearBs: string): string[] {
+  const currentMonth = monthFromBsDate(todayBs());
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = String(index + 1).padStart(2, "0");
+    return `${yearBs}-${month}`;
+  }).filter((month) => month <= currentMonth);
+}
+
+function formatAcademicYearBs(yearBs: string): string {
+  return `${yearBs} B.S. (Baisakh–Chaitra)`;
+}
+
 function formatClassWithSection(classItem: ClassItem): string {
   const name = String(classItem.name ?? "").trim();
   const section = String(
@@ -103,6 +118,101 @@ function escapeHtml(value: unknown): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function styleExcelAttendanceSheet(
+  XLSX: any,
+  worksheet: any,
+  rowCount: number,
+  columnCount: number,
+  percentageColumn: number,
+  statusStartColumn?: number,
+) {
+  const border = {
+    top: { style: "thin", color: { rgb: "D9E2F3" } },
+    bottom: { style: "thin", color: { rgb: "D9E2F3" } },
+    left: { style: "thin", color: { rgb: "D9E2F3" } },
+    right: { style: "thin", color: { rgb: "D9E2F3" } },
+  };
+  const centered = { horizontal: "center", vertical: "center", wrapText: true };
+
+  [
+    { row: 0, size: 16, bold: true, color: "17365D" },
+    { row: 1, size: 11, bold: false, color: "666666" },
+    { row: 2, size: 14, bold: true, color: "17365D" },
+    { row: 3, size: 11, bold: true, color: "1F1F1F" },
+  ].forEach(({ row, size, bold, color }) => {
+    const titleCell = worksheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+    if (titleCell) {
+      titleCell.s = {
+        font: { name: "Arial", sz: size, bold, color: { rgb: color } },
+        alignment: centered,
+      };
+    }
+  });
+
+  for (let column = 0; column < columnCount; column += 1) {
+    const headerCell = worksheet[XLSX.utils.encode_cell({ r: 5, c: column })];
+    if (headerCell) {
+      headerCell.s = {
+        font: { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
+        fill: { patternType: "solid", fgColor: { rgb: "17365D" } },
+        alignment: centered,
+        border,
+      };
+    }
+  }
+
+  const statusColors: Record<string, { fill: string; font: string }> = {
+    P: { fill: "E2F0D9", font: "375623" },
+    A: { fill: "FCE4D6", font: "C00000" },
+    L: { fill: "FFF2CC", font: "9C6500" },
+    S: { fill: "DDEBF7", font: "1F4E78" },
+  };
+
+  for (let row = 6; row < rowCount; row += 1) {
+    for (let column = 0; column < columnCount; column += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: column });
+      const cell = worksheet[address];
+      if (!cell) continue;
+      const academicStatus = statusStartColumn === undefined
+        ? ({ 2: statusColors.P, 3: statusColors.A, 4: statusColors.L, 5: statusColors.S } as Record<number, { fill: string; font: string }>)[column]
+        : undefined;
+      const status = statusStartColumn !== undefined && column >= statusStartColumn
+        ? statusColors[String(cell.v ?? "").toUpperCase()]
+        : academicStatus;
+      cell.s = {
+        font: {
+          name: "Arial",
+          sz: 10,
+          bold: Boolean(status),
+          color: { rgb: status?.font ?? "1F1F1F" },
+        },
+        fill: {
+          patternType: "solid",
+          fgColor: { rgb: status?.fill ?? (row % 2 === 0 ? "FFFFFF" : "F2F6FC") },
+        },
+        alignment: centered,
+        border,
+      };
+    }
+
+    const percentageCell = worksheet[
+      XLSX.utils.encode_cell({ r: row, c: percentageColumn })
+    ];
+    if (percentageCell) {
+      percentageCell.z = "0.0%";
+      percentageCell.s = { ...percentageCell.s, numFmt: "0.0%" };
+    }
+  }
+
+  worksheet["!rows"] = [
+    { hpt: 27 }, { hpt: 21 }, { hpt: 25 }, { hpt: 22 }, { hpt: 9 }, { hpt: 32 },
+    ...Array.from({ length: Math.max(0, rowCount - 6) }, () => ({ hpt: 22 })),
+  ];
+  worksheet["!autofilter"] = {
+    ref: `A6:${XLSX.utils.encode_col(columnCount - 1)}${rowCount}`,
+  };
 }
 
 async function readPremiumEntitlement(): Promise<{
@@ -172,9 +282,14 @@ export default function ReportsScreen() {
   const [classId, setClassId] = useState<string | null>(null);
 
   const [monthBs, setMonthBs] = useState<string>(monthFromBsDate(todayBs()));
+  const [reportMode, setReportMode] = useState<ReportMode>("monthly");
+  const [academicYearBs, setAcademicYearBs] = useState<string>(
+    monthFromBsDate(todayBs()).slice(0, 4),
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [rows, setRows] = useState<MonthlyStudentSummary[]>([]);
+  const [academicClassesHeld, setAcademicClassesHeld] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const [premiumOk, setPremiumOk] = useState(false);
@@ -205,6 +320,12 @@ export default function ReportsScreen() {
       mounted = false;
     };
   }, [tenantId, refreshTick]);
+
+  useEffect(() => {
+    if (!premiumOk && reportMode === "academic") {
+      setReportMode("monthly");
+    }
+  }, [premiumOk, reportMode]);
 
   const refreshClasses = useCallback(async () => {
     if (!tenantId) return;
@@ -248,12 +369,88 @@ export default function ReportsScreen() {
     (async () => {
       setLoading(true);
       try {
-        const data = await getMonthlyAttendanceSummary({
-          tenantId,
-          classId,
-          monthBs,
-        });
-        if (mounted) setRows(data);
+        if (reportMode === "monthly") {
+          const data = await getMonthlyAttendanceSummary({
+            tenantId,
+            classId,
+            monthBs,
+          });
+          if (mounted) {
+            setRows(data);
+            setAcademicClassesHeld(0);
+          }
+        } else {
+          const { buildMonthlyMatrix } =
+            await import("../../src/db/reportRepo");
+          const aggregated = new Map<string, MonthlyStudentSummary>();
+          let classesHeld = 0;
+
+          // Run database reads sequentially. This is friendlier to Expo/SQLite
+          // than opening all twelve month queries at the same time.
+          for (const academicMonth of academicMonthsForYear(academicYearBs)) {
+            const matrix = await buildMonthlyMatrix({
+              tenantId,
+              classId,
+              monthBs: academicMonth,
+            });
+
+            const heldDates = matrix.sessions
+              .filter((session: any) => {
+                if ((session?.dayType ?? "CLASS") !== "CLASS") return false;
+                return matrix.students.some((student: any) => {
+                  const status = String(
+                    matrix.statusMap.get(`${student.id}__${session.dateBs}`) ?? "",
+                  ).toUpperCase();
+                  return status === "P" || status === "A" || status === "L" || status === "S";
+                });
+              })
+              .map((session: any) => session.dateBs);
+
+            classesHeld += heldDates.length;
+            for (const student of matrix.students as any[]) {
+              let current = aggregated.get(student.id);
+              if (!current) {
+                current = {
+                  studentId: student.id,
+                  rollNo: student.rollNo,
+                  name: student.name,
+                  present: 0,
+                  absent: 0,
+                  leave: 0,
+                  sick: 0,
+                  total: 0,
+                  percentage: 0,
+                };
+                aggregated.set(student.id, current);
+              }
+
+              for (const dateBs of heldDates) {
+                const status = String(
+                  matrix.statusMap.get(`${student.id}__${dateBs}`) ?? "",
+                ).toUpperCase();
+                if (status === "P") current.present += 1;
+                else if (status === "A") current.absent += 1;
+                else if (status === "L") current.leave += 1;
+                else if (status === "S") current.sick += 1;
+              }
+            }
+          }
+
+          for (const student of aggregated.values()) {
+            student.total = classesHeld;
+            student.percentage = classesHeld
+              ? Math.round((student.present / classesHeld) * 10_000) / 100
+              : 0;
+          }
+
+          const data = Array.from(aggregated.values()).sort(
+            (a, b) => Number(a.rollNo) - Number(b.rollNo),
+          );
+          if (mounted) {
+            setRows(data);
+            setAcademicClassesHeld(classesHeld);
+          }
+        }
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "Failed to load report");
       } finally {
@@ -264,7 +461,7 @@ export default function ReportsScreen() {
     return () => {
       mounted = false;
     };
-  }, [tenantId, classId, monthBs, refreshTick]);
+  }, [tenantId, classId, monthBs, academicYearBs, reportMode, refreshTick]);
 
   const selectedClass = useMemo(
     () => classes.find((c) => c.id === classId) ?? null,
@@ -272,17 +469,26 @@ export default function ReportsScreen() {
   );
 
   const totals = useMemo(() => {
-    const totalDays =
-      rows.length > 0 ? Math.max(...rows.map((r) => r.total)) : 0;
+    const totalDays = reportMode === "academic"
+      ? academicClassesHeld
+      : rows.length > 0
+        ? Math.max(...rows.map((r) => r.total))
+        : 0;
     const avg = rows.length
       ? Math.round(rows.reduce((sum, r) => sum + r.percentage, 0) / rows.length)
       : 0;
     return { totalDays, avg };
-  }, [rows]);
+  }, [rows, reportMode, academicClassesHeld]);
 
   const { sumPresent, sumAbsent, sumTotal, overallRate } = useMemo(() => {
     const sp = rows.reduce((sum, r) => sum + (r.present || 0), 0);
-    const sa = rows.reduce((sum, r) => sum + (r.absent || 0), 0);
+    // In summary/report figures, Leave and Sick are treated as not present.
+    // Their original values remain untouched so the detail modal can still
+    // show Absent, Leave and Sick dates separately.
+    const sa = rows.reduce(
+      (sum, r) => sum + (r.absent || 0) + (r.leave || 0) + (r.sick || 0),
+      0,
+    );
     const st = rows.reduce((sum, r) => sum + (r.total || 0), 0);
 
     const rate = st > 0 ? Math.round((sp / st) * 100) : 0;
@@ -293,8 +499,27 @@ export default function ReportsScreen() {
     // Future dates are disabled by maxDate; keep this as a silent safeguard.
     if (isFutureBs(picked)) return;
 
-    setMonthBs(monthFromBsDate(picked));
+    if (reportMode === "academic") {
+      setAcademicYearBs(picked.slice(0, 4));
+    } else {
+      setMonthBs(monthFromBsDate(picked));
+    }
     setPickerOpen(false);
+  };
+
+  const selectReportMode = (nextMode: ReportMode) => {
+    if (nextMode === "academic" && !premiumOk) {
+      Alert.alert(
+        "Premium required",
+        "Academic Year Report is a premium feature. Activate Premium in Settings.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Go to Settings", onPress: () => router.push("/(tabs)/settings") },
+        ],
+      );
+      return;
+    }
+    setReportMode(nextMode);
   };
 
   const loadStudentMonthDetails = useCallback(
@@ -339,32 +564,38 @@ export default function ReportsScreen() {
   );
   const EXPORT_DIR_KEY = "ATTENDANCE_EXPORT_DIR_URI";
 
+  function writeCacheExport(fileName: string, base64: string): string {
+    const file = new File(Paths.cache, fileName);
+    file.create({ overwrite: true, intermediates: true });
+    file.write(base64, { encoding: "base64" });
+    return file.uri;
+  }
+
   async function saveExportToDownloads(
     fileName: string,
     base64: string,
     mimeType: string,
   ) {
     // Android: use Storage Access Framework so user chooses folder once
-    if (Platform.OS === "android" && FileSystem.StorageAccessFramework) {
+    if (Platform.OS === "android" && LegacyFileSystem.StorageAccessFramework) {
       const cached = await AsyncStorage.getItem(EXPORT_DIR_KEY);
 
       const writeToDir = async (dirUri: string) => {
-        const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+        const fileUri = await LegacyFileSystem.StorageAccessFramework.createFileAsync(
           dirUri,
           fileName,
           mimeType,
         );
-        await FileSystem.writeAsStringAsync(fileUri, base64, {
-          encoding: FileSystem.EncodingType.Base64,
+        // SAF returns a content:// URI. Use its compatible writer instead of
+        // File.write(), which can open Android SAF files as read-only.
+        await LegacyFileSystem.writeAsStringAsync(fileUri, base64, {
+          encoding: LegacyFileSystem.EncodingType.Base64,
         });
 
         // Optional share copy
         try {
           if (Sharing && (await Sharing.isAvailableAsync())) {
-            const shareUri = `${FileSystem.cacheDirectory}${fileName}`;
-            await FileSystem.writeAsStringAsync(shareUri, base64, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
+            const shareUri = writeCacheExport(fileName, base64);
             await Sharing.shareAsync(shareUri, { mimeType });
           }
         } catch {
@@ -382,7 +613,7 @@ export default function ReportsScreen() {
       }
 
       const perm =
-        await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        await LegacyFileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!perm.granted) {
         throw new Error("Folder permission not granted.");
       }
@@ -392,15 +623,135 @@ export default function ReportsScreen() {
     }
 
     // iOS / others: save to cache and share
-    const uri = `${FileSystem.cacheDirectory}${fileName}`;
-    await FileSystem.writeAsStringAsync(uri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const uri = writeCacheExport(fileName, base64);
     if (Sharing && (await Sharing.isAvailableAsync())) {
       await Sharing.shareAsync(uri, { mimeType });
     } else {
       Alert.alert("Saved", `Saved to: ${uri}`);
     }
+  }
+
+  async function exportAcademicYearExcel() {
+    if (!tenantId || !selectedClass || rows.length === 0) {
+      Alert.alert("Nothing to export", "No attendance data found for this academic year.");
+      return;
+    }
+
+    const classLabel = formatClassWithSection(selectedClass);
+    const XLSX: any = await import("xlsx-js-style");
+    const sheetRows: (string | number)[][] = [
+      [tenant.schoolName],
+      [tenant.schoolAddress],
+      [`ACADEMIC YEAR ATTENDANCE REPORT — ${academicYearBs} B.S.`],
+      [classLabel],
+      [],
+      [
+        "Roll", "Student Name", "Present", "Absent", "Leave", "Sick",
+        "Classes Held", "Attendance Percentage",
+      ],
+      ...rows.map((student) => [
+        student.rollNo,
+        student.name,
+        student.present,
+        student.absent,
+        student.leave,
+        student.sick,
+        academicClassesHeld,
+        student.percentage / 100,
+      ]),
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    worksheet["!merges"] = [0, 1, 2, 3].map((row) => ({
+      s: { r: row, c: 0 },
+      e: { r: row, c: 7 },
+    }));
+    worksheet["!cols"] = [10, 28, 12, 12, 12, 12, 14, 20].map((wch) => ({ wch }));
+    styleExcelAttendanceSheet(XLSX, worksheet, sheetRows.length, 8, 7);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Academic Year Report");
+
+    const className = classLabel.replace(/[^a-z0-9_-]+/gi, "_");
+    const fileName = `${className}_Academic_Year_Report_${academicYearBs}.xlsx`;
+    const base64 = XLSX.write(workbook, {
+      type: "base64",
+      bookType: "xlsx",
+      cellStyles: true,
+    });
+    await saveExportToDownloads(
+      fileName,
+      base64,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    Alert.alert("Exported", `Saved: ${fileName}`);
+  }
+
+  async function exportAcademicYearPdf() {
+    if (!selectedClass || rows.length === 0) {
+      Alert.alert("Nothing to export", "No attendance data found for this academic year.");
+      return;
+    }
+
+    const classLabel = formatClassWithSection(selectedClass);
+    const tableRows = rows
+      .map(
+        (student) => `<tr>
+          <td class="center">${escapeHtml(student.rollNo)}</td>
+          <td>${escapeHtml(student.name)}</td>
+          <td class="center present">${student.present}</td>
+          <td class="center absent">${student.absent}</td>
+          <td class="center leave">${student.leave}</td>
+          <td class="center sick">${student.sick}</td>
+          <td class="center">${student.total}</td>
+          <td class="center rate">${student.percentage}%</td>
+        </tr>`,
+      )
+      .join("");
+    const notPresent = rows.reduce(
+      (sum, row) => sum + row.absent + row.leave + row.sick,
+      0,
+    );
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
+      <style>
+        @page { size: A4 landscape; margin: 14mm 12mm; }
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; color: #1f2937; margin: 0; font-size: 10px; }
+        .school { text-align: center; color: #17365d; font-size: 20px; font-weight: 800; margin: 0; }
+        .address, .meta { text-align: center; color: #64748b; font-size: 11px; margin-top: 4px; }
+        .title { text-align: center; color: #17365d; font-size: 15px; font-weight: 800; margin-top: 12px; }
+        .summary { display: flex; gap: 8px; margin: 14px 0 12px; }
+        .box { flex: 1; border: 1px solid #d9e2f3; border-radius: 7px; padding: 8px; text-align: center; background: #f8fafc; }
+        .value { font-size: 16px; font-weight: 800; color: #17365d; }
+        .label { margin-top: 2px; color: #64748b; font-size: 9px; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; } thead { display: table-header-group; }
+        tr { page-break-inside: avoid; } th { background: #17365d; color: white; padding: 7px 5px; border: 1px solid #b4c6e7; font-size: 9px; }
+        td { padding: 6px 5px; border: 1px solid #d9e2f3; } tbody tr:nth-child(even) { background: #f2f6fc; }
+        .center { text-align: center; } .present { color: #2563eb; font-weight: 800; }
+        .absent { color: #dc2626; font-weight: 800; } .leave { color: #b45309; font-weight: 800; }
+        .sick { color: #4338ca; font-weight: 800; } .rate { color: #17365d; font-weight: 800; }
+        .footer { margin-top: 10px; text-align: right; color: #94a3b8; font-size: 8px; }
+      </style></head><body>
+      <h1 class="school">${escapeHtml(tenant.schoolName)}</h1>
+      <div class="address">${escapeHtml(tenant.schoolAddress)}</div>
+      <div class="title">ACADEMIC YEAR ATTENDANCE REPORT</div>
+      <div class="meta">${escapeHtml(formatAcademicYearBs(academicYearBs))} | ${escapeHtml(classLabel)}</div>
+      <div class="summary">
+        <div class="box"><div class="value">${rows.length}</div><div class="label">Students</div></div>
+        <div class="box"><div class="value">${totals.totalDays}</div><div class="label">Classes Held</div></div>
+        <div class="box"><div class="value">${sumPresent}</div><div class="label">Total Present</div></div>
+        <div class="box"><div class="value">${notPresent}</div><div class="label">Total Not Present</div></div>
+        <div class="box"><div class="value">${overallRate}%</div><div class="label">Attendance Rate</div></div>
+      </div>
+      <table><thead><tr><th>Roll</th><th>Student Name</th><th>Present</th><th>Absent</th><th>Leave</th><th>Sick</th><th>Classes Held</th><th>Attendance</th></tr></thead>
+      <tbody>${tableRows}</tbody></table>
+      <div class="footer">Generated by Nepali Attendance</div>
+      </body></html>`;
+
+    const pdf = await Print.printToFileAsync({ html, base64: true });
+    if (!pdf.base64) throw new Error("PDF data could not be generated.");
+    const className = classLabel.replace(/[^a-z0-9_-]+/gi, "_");
+    const fileName = `${className}_Academic_Year_Report_${academicYearBs}.pdf`;
+    await saveExportToDownloads(fileName, pdf.base64, "application/pdf");
+    Alert.alert("Exported", `Saved: ${fileName}`);
   }
 
   async function exportExcel() {
@@ -426,6 +777,15 @@ export default function ReportsScreen() {
           },
         ],
       );
+      return;
+    }
+
+    if (reportMode === "academic") {
+      try {
+        await exportAcademicYearExcel();
+      } catch (e: any) {
+        Alert.alert("Export failed", e?.message ?? "Could not export academic year Excel report.");
+      }
       return;
     }
 
@@ -460,100 +820,22 @@ export default function ReportsScreen() {
         ...dateCols,
       ];
 
-      // ExcelJS/JSZip expects Buffer in the global scope. Expo Go does not
-      // provide it, so install the lightweight browser polyfill before loading.
-      (globalThis as typeof globalThis & { Buffer?: typeof Buffer }).Buffer ??=
-        Buffer;
-      const { default: ExcelJS } = await import("exceljs");
-      const workbook = new ExcelJS.Workbook();
-      workbook.creator = "Nepali Attendance";
-      workbook.created = new Date();
-      const worksheet = workbook.addWorksheet("Attendance Report", {
-        views: [{ state: "frozen", xSplit: 2, ySplit: 6 }],
-        pageSetup: {
-          orientation: "landscape",
-          fitToPage: true,
-          fitToWidth: 1,
-          fitToHeight: 0,
-        },
-      });
-
       const lastColumn = header.length;
-      const titleRows = [
-        tenant.schoolName,
-        tenant.schoolAddress,
-        `MONTHLY ATTENDANCE REPORT — ${formatReportMonthBs(monthBs).toUpperCase()}`,
-        formatClassWithSection(selectedClass),
-      ];
-
-      titleRows.forEach((title, index) => {
-        const rowNumber = index + 1;
-        worksheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
-        const cell = worksheet.getCell(rowNumber, 1);
-        cell.value = title;
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-      });
-
-      worksheet.getRow(1).height = 27;
-      worksheet.getCell("A1").font = {
-        name: "Calibri",
-        size: 16,
-        bold: true,
-        color: { argb: "FF17365D" },
-      };
-      worksheet.getRow(2).height = 21;
-      worksheet.getCell("A2").font = {
-        name: "Calibri",
-        size: 11,
-        color: { argb: "FF666666" },
-      };
-      worksheet.getRow(3).height = 25;
-      worksheet.getCell("A3").font = {
-        name: "Calibri",
-        size: 14,
-        bold: true,
-        color: { argb: "FF17365D" },
-      };
-      worksheet.getRow(4).height = 22;
-      worksheet.getCell("A4").font = {
-        name: "Calibri",
-        size: 11,
-        bold: true,
-        color: { argb: "FF1F1F1F" },
-      };
-      worksheet.getRow(5).height = 9;
-
-      const headerRow = worksheet.getRow(6);
-      headerRow.values = header;
-      headerRow.height = 32;
-      headerRow.eachCell((cell) => {
-        cell.font = {
-          name: "Calibri",
-          size: 10,
-          bold: true,
-          color: { argb: "FFFFFFFF" },
-        };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FF17365D" },
-        };
-        cell.alignment = {
-          horizontal: "center",
-          vertical: "middle",
-          wrapText: true,
-        };
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFB4C6E7" } },
-          left: { style: "thin", color: { argb: "FFB4C6E7" } },
-          bottom: { style: "thin", color: { argb: "FFB4C6E7" } },
-          right: { style: "thin", color: { argb: "FFB4C6E7" } },
-        };
-      });
-
-      const classesHeld = sessions.filter(
-        (s: any) => (s?.dayType ?? "CLASS") === "CLASS",
-      ).length;
+      const heldDateSet = new Set(
+        sessions
+          .filter((session: any) => {
+            if ((session?.dayType ?? "CLASS") !== "CLASS") return false;
+            return students.some((student: any) => {
+              const status = String(
+                statusMap.get(`${student.id}__${session.dateBs}`) ?? "",
+              ).toUpperCase();
+              return status === "P" || status === "A" || status === "L" || status === "S";
+            });
+          })
+          .map((session: any) => session.dateBs),
+      );
+      const classesHeld = heldDateSet.size;
+      const reportRows: (string | number)[][] = [];
 
       for (const st of students) {
         let attended = 0;
@@ -576,7 +858,7 @@ export default function ReportsScreen() {
 
           const key = `${st.id}__${s.dateBs}`;
           const status = String(statusMap.get(key) ?? "").toUpperCase();
-          if (status === "P") attended += 1;
+          if (status === "P" && heldDateSet.has(s.dateBs)) attended += 1;
           if (
             status === "A" ||
             status === "P" ||
@@ -590,7 +872,7 @@ export default function ReportsScreen() {
         }
 
         const pct = classesHeld ? attended / classesHeld : 0;
-        const row = worksheet.addRow([
+        reportRows.push([
           st.rollNo,
           st.name,
           classesHeld,
@@ -598,94 +880,46 @@ export default function ReportsScreen() {
           pct,
           ...cells,
         ]);
-        row.height = 21;
-        row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-          cell.font = {
-            name: "Calibri",
-            size: 10,
-            color: { argb: "FF1F1F1F" },
-          };
-          cell.alignment = {
-            horizontal: columnNumber === 2 ? "left" : "center",
-            vertical: "middle",
-            wrapText: columnNumber >= 6,
-          };
-          cell.fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: row.number % 2 === 0 ? "FFF2F6FC" : "FFFFFFFF" },
-          };
-          cell.border = {
-            top: { style: "thin", color: { argb: "FFD9E2F3" } },
-            left: { style: "thin", color: { argb: "FFD9E2F3" } },
-            bottom: { style: "thin", color: { argb: "FFD9E2F3" } },
-            right: { style: "thin", color: { argb: "FFD9E2F3" } },
-          };
-        });
-        row.getCell(5).numFmt = "0.0%";
-
-        cells.forEach((status, index) => {
-          const cell = row.getCell(index + 6);
-          const normalized = status.toUpperCase();
-          const dayType = sessions[index]?.dayType;
-          const color =
-            normalized === "P"
-              ? "FFE2F0D9"
-              : normalized === "A"
-                ? "FFFCE4D6"
-                : normalized === "L"
-                  ? "FFFFF2CC"
-                  : normalized === "S"
-                    ? "FFDDEBF7"
-                    : dayType === "WEEKLY_OFF" || dayType === "HOLIDAY"
-                      ? "FFE7E6E6"
-                      : null;
-
-          if (color) {
-            cell.fill = {
-              type: "pattern",
-              pattern: "solid",
-              fgColor: { argb: color },
-            };
-          }
-          if (normalized === "A") {
-            cell.font = {
-              name: "Calibri",
-              size: 10,
-              bold: true,
-              color: { argb: "FFC00000" },
-            };
-          } else if (normalized === "P") {
-            cell.font = {
-              name: "Calibri",
-              size: 10,
-              bold: true,
-              color: { argb: "FF375623" },
-            };
-          }
-        });
       }
-
-      worksheet.getColumn(1).width = 10;
-      worksheet.getColumn(2).width = 28;
-      worksheet.getColumn(3).width = 13;
-      worksheet.getColumn(4).width = 15;
-      worksheet.getColumn(5).width = 16;
-      for (let column = 6; column <= lastColumn; column += 1) {
-        worksheet.getColumn(column).width = 13;
-      }
-      worksheet.autoFilter = {
-        from: { row: 6, column: 1 },
-        to: { row: 6, column: lastColumn },
-      };
+      const XLSX: any = await import("xlsx-js-style");
+      const sheetRows: (string | number)[][] = [
+        [tenant.schoolName],
+        [tenant.schoolAddress],
+        [`MONTHLY ATTENDANCE REPORT — ${formatReportMonthBs(monthBs).toUpperCase()}`],
+        [formatClassWithSection(selectedClass)],
+        [],
+        header,
+        ...reportRows,
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+      worksheet["!merges"] = [0, 1, 2, 3].map((row) => ({
+        s: { r: row, c: 0 },
+        e: { r: row, c: lastColumn - 1 },
+      }));
+      worksheet["!cols"] = header.map((_, index) => ({
+        wch: index === 1 ? 28 : index >= 5 ? 13 : 16,
+      }));
+      styleExcelAttendanceSheet(
+        XLSX,
+        worksheet,
+        sheetRows.length,
+        lastColumn,
+        4,
+        5,
+      );
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance Report");
 
       const className = formatClassWithSection(selectedClass).replace(
         /[^a-z0-9_-]+/gi,
         "_",
       );
       const fileName = `🏫${className}_Attendance_Report_${monthBs}.xlsx`;
-      const bytes = await workbook.xlsx.writeBuffer();
-      const base64 = Buffer.from(bytes as ArrayBuffer).toString("base64");
+      const base64 = XLSX.write(workbook, {
+        type: "base64",
+        bookType: "xlsx",
+        cellStyles: true,
+      });
 
       await saveExportToDownloads(
         fileName,
@@ -732,6 +966,15 @@ export default function ReportsScreen() {
         "Nothing to export",
         "No attendance data found for this class.",
       );
+      return;
+    }
+
+    if (reportMode === "academic") {
+      try {
+        await exportAcademicYearPdf();
+      } catch (e: any) {
+        Alert.alert("Export failed", e?.message ?? "Could not export academic year PDF report.");
+      }
       return;
     }
 
@@ -796,7 +1039,7 @@ export default function ReportsScreen() {
               <div class="summary-box"><div class="summary-value">${rows.length}</div><div class="summary-label">Students</div></div>
               <div class="summary-box"><div class="summary-value">${totals.totalDays}</div><div class="summary-label">Classes Held</div></div>
               <div class="summary-box"><div class="summary-value">${sumPresent}</div><div class="summary-label">Total Present</div></div>
-              <div class="summary-box"><div class="summary-value">${sumAbsent + rows.reduce((sum, row) => sum + row.leave + row.sick, 0)}</div><div class="summary-label">Total Not Present</div></div>
+              <div class="summary-box"><div class="summary-value">${sumAbsent}</div><div class="summary-label">Total Not Present</div></div>
               <div class="summary-box"><div class="summary-value">${overallRate}%</div><div class="summary-label">Attendance Rate</div></div>
             </div>
 
@@ -835,15 +1078,17 @@ export default function ReportsScreen() {
     <Screen>
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
-      <CalendarPicker
+      <NepaliDatePicker
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onDateSelect={onPickDate}
-        date={`${monthBs}-01`}
+        date={
+          reportMode === "academic"
+            ? `${academicYearBs}-01-01`
+            : `${monthBs}-01`
+        }
         maxDate={todayBs()}
         brandColor={Colors.primary}
-        // @ts-ignore
-        language="nepali"
       />
 
       {/* Student-wise monthly details */}
@@ -962,13 +1207,65 @@ export default function ReportsScreen() {
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Monthly Summary</Text>
+                <Text style={styles.title}>
+                  {reportMode === "academic"
+                    ? "Academic Year Summary"
+                    : "Monthly Summary"}
+                </Text>
                 <Text style={styles.subtitle}>
-                  BS Month: <Text style={{ fontWeight: "900" }}>{monthBs}</Text>
+                  {reportMode === "academic" ? "Academic Year: " : "BS Month: "}
+                  <Text style={{ fontWeight: "900" }}>
+                    {reportMode === "academic" ? academicYearBs : monthBs}
+                  </Text>
                   {"  "}•{"  "}
                   {premiumOk ? "Premium Active" : "Premium Locked"}
                 </Text>
               </View>
+            </View>
+
+            <View style={styles.modeSwitch}>
+              <Pressable
+                onPress={() => selectReportMode("monthly")}
+                style={[
+                  styles.modeButton,
+                  reportMode === "monthly" && styles.modeButtonActive,
+                ]}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={17}
+                  color={reportMode === "monthly" ? "#FFFFFF" : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.modeButtonText,
+                    reportMode === "monthly" && styles.modeButtonTextActive,
+                  ]}
+                >
+                  Monthly
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => selectReportMode("academic")}
+                style={[
+                  styles.modeButton,
+                  reportMode === "academic" && styles.modeButtonActive,
+                ]}
+              >
+                <Ionicons
+                  name={premiumOk ? "school-outline" : "lock-closed-outline"}
+                  size={17}
+                  color={reportMode === "academic" ? "#FFFFFF" : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.modeButtonText,
+                    reportMode === "academic" && styles.modeButtonTextActive,
+                  ]}
+                >
+                  Academic Year
+                </Text>
+              </Pressable>
             </View>
 
             <View style={styles.exportActions}>
@@ -1061,7 +1358,11 @@ export default function ReportsScreen() {
                   size={18}
                   color={Colors.textPrimary}
                 />
-                <Text style={styles.pickerText}>{monthBs}</Text>
+                <Text style={styles.pickerText}>
+                  {reportMode === "academic"
+                    ? formatAcademicYearBs(academicYearBs)
+                    : monthBs}
+                </Text>
               </Pressable>
 
               {classes.length === 0 ? (
@@ -1116,7 +1417,7 @@ export default function ReportsScreen() {
               </View>
             </View>
 
-            {/* Class-wise monthly summary */}
+            {/* Class-wise report summary */}
             <View style={styles.summaryCard}>
               <View style={styles.summaryTop}>
                 <View style={{ flex: 1 }}>
@@ -1130,11 +1431,11 @@ export default function ReportsScreen() {
                       : "Class"}
                   </Text>
                   <Text style={styles.summarySub}>
-                    Month (BS):{" "}
+                    {reportMode === "academic" ? "Academic Year: " : "Month (BS): "}
                     <Text
                       style={{ fontWeight: "900", color: Colors.textPrimary }}
                     >
-                      {monthBs}
+                      {reportMode === "academic" ? academicYearBs : monthBs}
                     </Text>
                   </Text>
                 </View>
@@ -1173,14 +1474,16 @@ export default function ReportsScreen() {
                   />
                 </View>
                 <Text style={styles.summaryFooterText}>
-                  Overall attendance rate for this month (based on all students)
+                  Overall attendance rate for this {reportMode === "academic" ? "academic year" : "month"} (based on all students)
                 </Text>
               </View>
             </View>
 
             <Text style={styles.listTitle}>Students</Text>
             <Text style={styles.listSub}>
-              Swipe anywhere to scroll • Tap a card to view details later
+              {reportMode === "monthly"
+                ? "Swipe anywhere to scroll • Tap a card to view date details"
+                : "Baisakh–Chaitra totals for the selected class"}
             </Text>
           </View>
         }
@@ -1193,13 +1496,17 @@ export default function ReportsScreen() {
             />
             <Text style={styles.emptyTitle}>No data</Text>
             <Text style={styles.emptySubtitle}>
-              Take attendance for this month, then come back here.
+              Take attendance for this {reportMode === "academic" ? "academic year" : "month"}, then come back here.
             </Text>
           </View>
         }
         renderItem={({ item }) => (
           <Pressable
-            onPress={() => openStudentDetails(item)}
+            onPress={
+              reportMode === "monthly"
+                ? () => openStudentDetails(item)
+                : undefined
+            }
             style={styles.card}
           >
             <View style={styles.cardTop}>
@@ -1233,7 +1540,8 @@ export default function ReportsScreen() {
                 />
               </View>
               <Text style={styles.progressHint}>
-                {item.present} present • {item.absent} absent • {item.total}{" "}
+                {item.present} present • {item.absent + item.leave + item.sick}{" "}
+                absent • {item.total}{" "}
                 days
               </Text>
             </View>
@@ -1250,7 +1558,7 @@ export default function ReportsScreen() {
 
               <View style={[styles.stat, styles.statAbsent]}>
                 <Text style={[styles.statValue, styles.statValueAbsent]}>
-                  {item.absent}
+                  {item.absent + item.leave + item.sick}
                 </Text>
                 <Text style={[styles.statLabel, styles.statLabelAbsent]}>
                   Absent
@@ -1281,6 +1589,30 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: "900", color: Colors.textPrimary },
   subtitle: { fontSize: 12, color: Colors.textSecondary, marginTop: 3 },
+
+  modeSwitch: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 4,
+    marginBottom: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: "#F1F5F9",
+  },
+  modeButton: {
+    flex: 1,
+    minHeight: 42,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  modeButtonActive: { backgroundColor: Colors.primary },
+  modeButtonText: { color: Colors.textSecondary, fontSize: 12, fontWeight: "900" },
+  modeButtonTextActive: { color: "#FFFFFF" },
 
   exportActions: { flexDirection: "row", gap: 10, marginBottom: 10 },
   exportBtn: {

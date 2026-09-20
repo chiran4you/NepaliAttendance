@@ -13,13 +13,13 @@ import {
 import { randomUUID } from "expo-crypto";
 import NepaliDate from "nepali-date-converter";
 import { Ionicons } from "@expo/vector-icons";
-import { CalendarPicker } from "react-native-nepali-picker";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import NetInfo from "@react-native-community/netinfo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
+import NepaliDatePicker from "../../src/components/NepaliDatePicker";
 import { Colors } from "../../src/constants/colors";
 import { APP_CONFIG } from "../../src/constants/appConfig";
 import { validatePremiumEntitlement } from "../../src/premium/license";
@@ -77,6 +77,28 @@ function isFutureBs(bs: string): boolean {
     return false;
   }
 }
+
+const STATUS_OPTIONS: Array<{
+  value: AttendanceStatus;
+  label: string;
+  color: string;
+  background: string;
+  border: string;
+}> = [
+  { value: "P", label: "Present", color: "#067647", background: "#ECFDF3", border: "#ABEFC6" },
+  { value: "A", label: "Absent", color: "#B42318", background: "#FEF2F2", border: "#FECACA" },
+  { value: "L", label: "Leave", color: "#B54708", background: "#FFFAEB", border: "#FCD34D" },
+  { value: "S", label: "Sick", color: "#4338CA", background: "#EEF2FF", border: "#C7D2FE" },
+];
+
+const ROLL_BADGE_COLORS = [
+  { background: "#E8F1FF", text: "#2563EB" },
+  { background: "#FFF1E8", text: "#EA580C" },
+  { background: "#E7F7FF", text: "#0284C7" },
+  { background: "#EAF8EE", text: "#16A34A" },
+  { background: "#F5ECFF", text: "#9333EA" },
+  { background: "#FFF4E5", text: "#D97706" },
+];
 
 export default function AttendanceScreen() {
   const { tenant } = useTenant();
@@ -274,15 +296,8 @@ const isPremiumValid = useCallback(async () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateBs, selectedClassId]);
 
-  const STATUS_ORDER: AttendanceStatus[] = ["P", "A", "L", "S"];
-
-  const toggleStatus = (studentId: string) => {
-    setStatusByStudentId((prev) => {
-      const cur = prev[studentId] ?? "P";
-      const idx = Math.max(0, STATUS_ORDER.indexOf(cur));
-      const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
-      return { ...prev, [studentId]: next };
-    });
+  const setStudentStatus = (studentId: string, status: AttendanceStatus) => {
+    setStatusByStudentId((prev) => ({ ...prev, [studentId]: status }));
   };
 
   const markAll = (status: AttendanceStatus) => {
@@ -593,7 +608,7 @@ const isPremiumValid = useCallback(async () => {
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
       {/* BS Date Picker modal */}
-      <CalendarPicker
+      <NepaliDatePicker
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onDateSelect={onPickDate}
@@ -779,89 +794,76 @@ const isPremiumValid = useCallback(async () => {
                 >
                   <Text style={styles.secondaryBtnText}>All Absent</Text>
                 </Pressable>
-                <Pressable
-                  onPress={onSave}
-                  style={({ pressed }) => [
-                    styles.primaryBtn,
-                    pressed && { opacity: 0.9 },
-                  ]}
-                >
-                  <Text style={styles.primaryBtnText}>Save</Text>
-                </Pressable>
               </View>
             ) : null}
 
             <Text style={styles.sectionTitle}>Students</Text>
-            <Text style={styles.subtleSmall}>Tap a student to cycle status (Present → Absent → Leave → Sick).</Text>
+            <View style={styles.statusLegendRow}>
+              {STATUS_OPTIONS.map((option) => (
+                <View key={option.value} style={styles.statusLegendItem}>
+                  <View style={[styles.statusLegendDot, { backgroundColor: option.color }]} />
+                  <Text style={styles.statusLegendText}>
+                    {option.value}: {option.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         }
         renderItem={({ item }) => {
           const status = statusByStudentId[item.id] ?? "P";
-
-          const statusLabel = (() => {
-            switch (status) {
-              case "A":
-                return "Absent";
-              case "L":
-                return "Leave";
-              case "S":
-                return "Sick";
-              default:
-                return "Present";
-            }
-          })();
-
-          const statusPillStyle = (() => {
-            switch (status) {
-              case "A":
-                return styles.statusAbsent;
-              case "L":
-                return styles.statusLeave;
-              case "S":
-                return styles.statusSick;
-              default:
-                return styles.statusPresent;
-            }
-          })();
-
-          const statusTextStyle = (() => {
-            switch (status) {
-              case "A":
-                return styles.statusTextAbsent;
-              case "L":
-                return styles.statusTextLeave;
-              case "S":
-                return styles.statusTextSick;
-              default:
-                return styles.statusTextPresent;
-            }
-          })();
+          const rollNumber = Number(item.rollNo) || 0;
+          const rollColor = ROLL_BADGE_COLORS[
+            Math.abs(rollNumber - 1) % ROLL_BADGE_COLORS.length
+          ];
 
           return (
-            <Pressable
-              onPress={() => toggleStatus(item.id)}
-              style={({ pressed }) => [
-                styles.studentRow,
-                pressed && { opacity: 0.92 },
-              ]}
+            <View
+              accessibilityLabel={`Roll ${item.rollNo}, ${item.name}`}
+              style={styles.studentRow}
             >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.studentName} numberOfLines={1}>
-                  {item.rollNo}. {item.name}
+              <View style={[styles.rollBadge, { backgroundColor: rollColor.background }]}>
+                <Text style={[styles.rollBadgeText, { color: rollColor.text }]}>
+                  {item.rollNo}
                 </Text>
-                {!!item.parentName && (
-                  <Text style={styles.meta} numberOfLines={1}>
-                    Parent: {item.parentName}
-                  </Text>
-                )}
               </View>
 
-              <View style={[styles.statusPill, statusPillStyle]}>
-                <Text style={[styles.statusText, statusTextStyle]}>
-                  {statusLabel}
-                </Text>
+              <Text style={styles.studentName} numberOfLines={1}>
+                {item.name}
+              </Text>
+
+              <View style={styles.statusSelectorRow}>
+                {STATUS_OPTIONS.map((option) => {
+                  const active = status === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="radio"
+                      accessibilityLabel={option.label}
+                      accessibilityState={{ checked: active }}
+                      onPress={() => setStudentStatus(item.id, option.value)}
+                      style={({ pressed }) => [
+                        styles.statusOption,
+                        {
+                          borderColor: active ? option.color : option.border,
+                          backgroundColor: active ? option.color : "#FFFFFF",
+                        },
+                        pressed && styles.statusOptionPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusOptionLetter,
+                          { color: active ? "#FFFFFF" : option.color },
+                        ]}
+                      >
+                        {option.value}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-            </Pressable>
+            </View>
           );
         }}
         ListEmptyComponent={
@@ -877,12 +879,24 @@ const isPremiumValid = useCallback(async () => {
           </View>
         }
       />
+
+      {!!selectedClassId && students.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Save attendance"
+          onPress={onSave}
+          style={({ pressed }) => [styles.saveFab, pressed && styles.saveFabPressed]}
+        >
+          <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+          <Text style={styles.saveFabText}>Save</Text>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 28, gap: 12 },
+  content: { padding: 16, paddingBottom: 112, gap: 12 },
 
   title: { fontSize: 22, fontWeight: "800", color: Colors.textPrimary },
   subtle: { marginTop: 4, color: Colors.textSecondary, lineHeight: 18 },
@@ -1044,34 +1058,17 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { fontWeight: "900", color: Colors.textPrimary, fontSize: 12 },
 
-  primaryBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    backgroundColor: Colors.primary,
-    alignItems: "center",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 6 },
-      },
-      android: { elevation: 3 },
-      default: {},
-    }),
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "900" },
-
   studentRow: {
     backgroundColor: Colors.surface,
-    borderRadius: 18,
-    padding: 14,
+    minHeight: 64,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: Colors.border,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -1083,19 +1080,72 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
-  studentName: { fontSize: 15, fontWeight: "900", color: Colors.textPrimary },
-  meta: { marginTop: 3, fontSize: 12.5, color: Colors.textSecondary },
+  rollBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rollBadgeText: { fontSize: 13, fontWeight: "900" },
+  studentName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.textPrimary,
+  },
+  statusSelectorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statusOption: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusOptionPressed: { opacity: 0.72, transform: [{ scale: 0.97 }] },
+  statusOptionLetter: { fontSize: 13, fontWeight: "900" },
+  statusLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 7,
+  },
+  statusLegendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statusLegendDot: { width: 7, height: 7, borderRadius: 4 },
+  statusLegendText: { color: Colors.textSecondary, fontSize: 10.5, fontWeight: "700" },
 
-  statusPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
-  statusPresent: { backgroundColor: "#ECFDF3", borderColor: "#ABEFC6" },
-  statusAbsent: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
-  statusLeave: { backgroundColor: "#FFFAEB", borderColor: "#FCD34D" },
-  statusSick: { backgroundColor: "#EEF2FF", borderColor: "#C7D2FE" },
-  statusText: { fontWeight: "900", fontSize: 12 },
-  statusTextPresent: { color: "#067647" },
-  statusTextAbsent: { color: "#B42318" },
-  statusTextLeave: { color: "#B54708" },
-  statusTextSick: { color: "#4338CA" },
+  saveFab: {
+    position: "absolute",
+    right: 20,
+    bottom: 22,
+    height: 56,
+    paddingHorizontal: 21,
+    borderRadius: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+    ...Platform.select({
+      ios: {
+        shadowColor: Colors.primary,
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 7 },
+      },
+      android: { elevation: 8 },
+      default: {},
+    }),
+  },
+  saveFabPressed: { opacity: 0.88, transform: [{ scale: 0.97 }] },
+  saveFabText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
 
   emptyTitle: { fontSize: 16, fontWeight: "900", color: Colors.textPrimary },
 });

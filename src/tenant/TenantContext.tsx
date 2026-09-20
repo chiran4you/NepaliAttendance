@@ -11,6 +11,8 @@ export type TenantFeatures = {
 
 export type TenantInfo = {
   tenantId: string;
+  /** Optional for backward compatibility with existing saved school profiles. */
+  deviceId?: string;
   schoolName: string;
   schoolAddress: string;
   features: TenantFeatures;
@@ -38,6 +40,8 @@ function normalizeTenant(raw: any): TenantInfo | null {
   const tenantId = String(raw.tenantId ?? "").trim();
   if (!tenantId) return null;
 
+  const deviceId = String(raw.deviceId ?? "").trim() || undefined;
+
   const schoolName = String(raw.schoolName ?? "School").trim() || "School";
   const schoolAddress = String(raw.schoolAddress ?? "").trim();
 
@@ -47,7 +51,7 @@ function normalizeTenant(raw: any): TenantInfo | null {
     smsAlertsEnabled: Boolean(f.smsAlertsEnabled),
   };
 
-  return { tenantId, schoolName, schoolAddress, features };
+  return { tenantId, deviceId, schoolName, schoolAddress, features };
 }
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {

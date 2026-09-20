@@ -14,10 +14,9 @@ import {
   ScrollView,
 } from "react-native";
 import { randomUUID } from "expo-crypto";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { Ionicons } from "@expo/vector-icons";
-import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
+import { File } from "expo-file-system";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
@@ -325,22 +324,19 @@ export default function StudentsScreen() {
 
   const chooseImportFile = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: [
+      const result = await File.pickFileAsync({
+        mimeTypes: [
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "application/vnd.ms-excel",
           "text/csv",
           "text/comma-separated-values",
         ],
-        copyToCacheDirectory: true,
-        multiple: false,
+        multipleFiles: false,
       });
 
       if (result.canceled) return;
-      const asset = result.assets[0];
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const pickedFile = result.result;
+      const base64 = await pickedFile.base64();
       const parsed = parseStudentWorkbook(base64);
 
       if (parsed.length === 0) {
@@ -348,7 +344,7 @@ export default function StudentsScreen() {
         return;
       }
 
-      setImportFileName(asset.name ?? "Selected file");
+      setImportFileName(pickedFile.name || "Selected file");
       setImportRows(parsed);
     } catch (e: any) {
       Alert.alert("Could not read file", e?.message ?? "Please use the sample Excel template.");

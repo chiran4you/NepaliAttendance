@@ -11,10 +11,10 @@ import {
 } from "react-native";
 import NepaliDate from "nepali-date-converter";
 import { Ionicons } from "@expo/vector-icons";
-import { CalendarPicker } from "react-native-nepali-picker";
 
 import Screen from "../../src/components/Screen";
 import AppHeader from "../../src/components/AppHeader";
+import NepaliDatePicker from "../../src/components/NepaliDatePicker";
 import { Colors } from "../../src/constants/colors";
 import { useTenant } from "../../src/tenant/TenantContext";
 import {
@@ -217,11 +217,17 @@ export default function HolidaysScreen() {
     <Screen>
       <AppHeader name={tenant.schoolName} address={tenant.schoolAddress} />
 
-      <CalendarPicker
+      <NepaliDatePicker
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onDateSelect={onPickDate}
-        date={pickerPurpose === "end" ? endDateBs : dateBs}
+        date={
+          pickerPurpose === "month"
+            ? `${monthBs}-01`
+            : pickerPurpose === "end"
+              ? endDateBs
+              : dateBs
+        }
         brandColor={Colors.primary}
       />
 
