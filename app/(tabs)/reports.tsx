@@ -632,7 +632,7 @@ export default function ReportsScreen() {
   }
 
   async function exportAcademicYearExcel() {
-    if (!tenantId || !selectedClass || rows.length === 0) {
+    if (!tenant || !tenantId || !selectedClass || rows.length === 0) {
       Alert.alert("Nothing to export", "No attendance data found for this academic year.");
       return;
     }
@@ -686,7 +686,7 @@ export default function ReportsScreen() {
   }
 
   async function exportAcademicYearPdf() {
-    if (!selectedClass || rows.length === 0) {
+    if (!tenant || !selectedClass || rows.length === 0) {
       Alert.alert("Nothing to export", "No attendance data found for this academic year.");
       return;
     }
