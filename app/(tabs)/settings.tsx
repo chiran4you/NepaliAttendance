@@ -397,7 +397,7 @@ export default function SettingsScreen() {
             value={smsSchoolName}
             onChangeText={setSmsSchoolName}
             editable={smsSchoolNameReady && !smsSchoolNameLocked}
-            placeholder="Example: Chhatrapali TSS"
+            placeholder="Example: Siddhartha EBSS"
             placeholderTextColor={Colors.muted}
             autoCapitalize="words"
             maxLength={25}
@@ -499,7 +499,7 @@ export default function SettingsScreen() {
 
           <Text style={styles.aboutSectionTitle}>Developer</Text>
           <Text style={styles.aboutText}>
-            Built by Chiran Poudel(NepaliAttendance Team)
+            Newgen Solution
           </Text>
           <Text style={styles.aboutText}>
             Website: https://www.nepaliattendance.com
