@@ -210,6 +210,7 @@
             <th>School</th>
             <th>Tenant ID</th>
             <th>Features</th>
+            <th>Status</th>
             <th class="actions">Actions</th>
           </tr>
         </thead>
@@ -336,6 +337,8 @@
       const data = await get("/admin/list-tenant-codes");
       (data.items || []).slice(0, 20).forEach((t) => {
         const feats = t.features || {};
+        // Codes created before status support remain enabled.
+        const active = t.active !== false;
         const f1 = feats.csvExportEnabled ? `<span class="pill pillGood">CSV</span>` : `<span class="pill">CSV</span>`;
         const f2 = feats.smsAlertsEnabled ? `<span class="pill pillGood">SMS</span>` : `<span class="pill">SMS</span>`;
         const row = document.createElement("tr");
@@ -347,16 +350,32 @@
           </td>
           <td class="mono">${safe(t.tenantId)}</td>
           <td>${f1} ${f2}</td>
+          <td>${statusPill(active)}</td>
           <td class="actions">
+            <button class="smallBtn tenantToggle">${active ? "Disable" : "Enable"}</button>
             <button class="smallBtn" onclick="copyText('${safe(t.code)}')">Copy Code</button>
             <button class="smallBtn" onclick="copyText('${safe(t.tenantId)}')">Copy TenantId</button>
             <button class="smallBtn" onclick="deleteTenant('${safe(t.code)}')">Delete</button>
           </td>
         `;
+        const toggle = row.querySelector(".tenantToggle");
+        toggle.addEventListener("click", () => toggleTenant(t.code, !active, toggle));
         table.appendChild(row);
       });
     } catch (e) {
       showResult("tenantResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    }
+  }
+
+  async function toggleTenant(code, active, button) {
+    button.disabled = true;
+    try {
+      await post("/admin/toggle-tenant-code", { code, active: String(active) });
+      await loadTenants();
+    } catch (e) {
+      showResult("tenantResult", `<span style="color:#fecaca"><b>Error:</b> ${e.message}</span>`);
+    } finally {
+      button.disabled = false;
     }
   }
 

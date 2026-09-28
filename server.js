@@ -352,6 +352,7 @@ app.post("/admin/create-tenant-code", async (req, res) => {
     const tenantId = crypto.randomUUID();
 
     await db.ref(`tenant_codes/${code}`).set({
+      active: true,
       tenantId,
       schoolName,
       schoolAddress,
@@ -380,6 +381,31 @@ app.get("/admin/list-tenant-codes", async (req, res) => {
     // newest first
     items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return res.json({ ok: true, items });
+  } catch (e) {
+    return res.status(500).send(e?.message || "Server error");
+  }
+});
+
+app.post("/admin/toggle-tenant-code", async (req, res) => {
+  try {
+    const code = String(req.body?.code || "").trim().toUpperCase();
+    const rawActive = req.body?.active;
+    if (!code || /[.#$\[\]\/\u0000-\u001f\u007f]/.test(code) || Buffer.byteLength(code, "utf8") > 768) {
+      return res.status(400).send("Valid school code required");
+    }
+    if (![true, false, "true", "false"].includes(rawActive)) {
+      return res.status(400).send("active must be true or false");
+    }
+    const active = rawActive === true || rawActive === "true";
+    // Update the existing record atomically; never recreate a deleted code.
+    const result = await db.ref(`tenant_codes/${code}`).transaction((tenant) => {
+      if (tenant === null) return tenant;
+      return { ...tenant, active };
+    });
+    if (!result.snapshot.exists()) {
+      return res.status(404).send("School code not found");
+    }
+    return res.json({ ok: true, code, active });
   } catch (e) {
     return res.status(500).send(e?.message || "Server error");
   }
