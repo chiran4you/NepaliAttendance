@@ -151,18 +151,27 @@ function validatePayload(raw: unknown, targetTenantId: string): RomeoPassPayload
 
   const recordKeys = new Set<string>();
   const allowedStatuses = new Set(["P", "A", "L", "S"]);
+  const validRecords: TransferRecord[] = [];
   for (const record of payload.records) {
-    if (!sessionIds.has(record?.sessionId) || !studentIds.has(record?.studentId)) {
-      throw new Error("Romeo Pass contains an attendance record with a missing student or date.");
-    }
+    const sessionId = requireText(record?.sessionId, "attendance session ID");
+    const studentId = requireText(record?.studentId, "attendance student ID");
     if (!allowedStatuses.has(record?.status ?? "")) throw new Error("Romeo Pass contains an invalid attendance status.");
     requireFiniteNumber(record?.markedAt, "attendance marked date");
-    const key = `${record.sessionId}:${record.studentId}`;
+
+    // Older databases can retain attendance for a student who was later
+    // deleted. That historical row can no longer be linked to a current
+    // student, so ignore only that orphan instead of rejecting the class.
+    if (!sessionIds.has(sessionId) || !studentIds.has(studentId)) continue;
+
+    const key = `${sessionId}:${studentId}`;
     if (recordKeys.has(key)) throw new Error("Romeo Pass contains duplicate attendance records.");
     recordKeys.add(key);
+    validRecords.push(record);
   }
 
-  return payload;
+  return validRecords.length === payload.records.length
+    ? payload
+    : { ...payload, records: validRecords };
 }
 
 function safeFilePart(value: string): string {
@@ -226,6 +235,10 @@ export async function createAndShareRomeoPass(params: {
         `SELECT ar.sessionId, ar.studentId, ar.status, ar.markedAt
          FROM attendance_records ar
          INNER JOIN attendance_sessions s ON s.id = ar.sessionId
+         INNER JOIN students st
+           ON st.id = ar.studentId
+          AND st.tenantId = s.tenantId
+          AND st.classId = s.classId
          WHERE s.tenantId = ? AND s.classId = ?
          ORDER BY s.dateBs ASC, ar.studentId ASC`,
         [params.tenantId, params.classId]
