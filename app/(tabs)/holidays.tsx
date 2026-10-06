@@ -398,7 +398,7 @@ export default function HolidaysScreen() {
               style={styles.row}
             >
               <View style={styles.holidayIcon}>
-                <Ionicons name="calendar" size={19} color="#B45309" />
+                <Ionicons name="calendar" size={19} color="#6750A4" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowDate}>{h.dateBs}</Text>
@@ -462,11 +462,11 @@ const styles = StyleSheet.create({
   changeText: { color: Colors.primary, fontSize: 12, fontWeight: "800" },
   card: {
     borderWidth: 1,
-    borderColor: "#FCD34D",
+    borderColor: "#D7CCF3",
     borderRadius: 16,
     padding: 14,
     marginTop: 14,
-    backgroundColor: "#FFFBEB",
+    backgroundColor: "#F1EDFC",
   },
   formHeader: {
     flexDirection: "row",
@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
     padding: 4,
     marginTop: 6,
     borderRadius: 12,
-    backgroundColor: "#FEF3C7",
+    backgroundColor: "#E4DCF7",
   },
   modeBtn: {
     flex: 1,
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
   },
   modeBtnActive: { backgroundColor: Colors.surface },
-  modeBtnText: { fontSize: 12, fontWeight: "800", color: "#92400E" },
+  modeBtnText: { fontSize: 12, fontWeight: "800", color: "#6750A4" },
   modeBtnTextActive: { color: Colors.primary },
   cardTitle: {
     fontSize: 16,
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
   schoolWideNote: {
     marginTop: 10,
     fontSize: 12,
-    color: "#92400E",
+    color: "#6750A4",
     lineHeight: 17,
   },
   primaryBtn: {
@@ -545,11 +545,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 11,
     borderWidth: 1,
-    borderColor: "#FDE68A",
+    borderColor: "#D7CCF3",
     borderRadius: 14,
     padding: 12,
     marginTop: 10,
-    backgroundColor: "#FFFBEB",
+    backgroundColor: "#F1EDFC",
   },
   holidayIcon: {
     width: 38,
@@ -557,9 +557,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FEF3C7",
+    backgroundColor: "#E4DCF7",
   },
-  rowDate: { fontWeight: "800", color: "#92400E" },
+  rowDate: { fontWeight: "800", color: "#6750A4" },
   rowTitle: { marginTop: 3, color: Colors.textPrimary },
   muted: { color: Colors.textSecondary, marginTop: 6 },
   deleteBtn: {

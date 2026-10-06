@@ -806,7 +806,7 @@ export default function StudentsScreen() {
             ) : null}
           </View>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <Pressable
             onLongPress={() => {
               Alert.alert("Student options", `${item.rollNo}. ${item.name}`, [
@@ -817,13 +817,25 @@ export default function StudentsScreen() {
             }}
             style={({ pressed }) => [
               styles.studentCard,
+              { borderLeftColor: STUDENT_CARD_COLORS[index % STUDENT_CARD_COLORS.length].accent },
               pressed && { opacity: 0.92 },
             ]}
           >
             <View style={styles.studentTop}>
+              <View style={[
+                styles.studentRollBadge,
+                { backgroundColor: STUDENT_CARD_COLORS[index % STUDENT_CARD_COLORS.length].soft },
+              ]}>
+                <Text style={[
+                  styles.studentRollText,
+                  { color: STUDENT_CARD_COLORS[index % STUDENT_CARD_COLORS.length].accent },
+                ]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                  {item.rollNo}
+                </Text>
+              </View>
               <View style={styles.studentTitleWrap}>
                 <Text style={styles.studentName} numberOfLines={1}>
-                  {item.rollNo}. {item.name}
+                  {item.name}
                 </Text>
 
                 {!!item.parentName && (
@@ -957,6 +969,13 @@ export default function StudentsScreen() {
     </Screen>
   );
 }
+
+const STUDENT_CARD_COLORS = [
+  { accent: "#2563EB", soft: "#DBEAFE" },
+  { accent: "#EA580C", soft: "#FFEDD5" },
+  { accent: "#16A34A", soft: "#DCFCE7" },
+  { accent: "#9333EA", soft: "#F3E8FF" },
+];
 
 const styles = StyleSheet.create({
   listContent: {
@@ -1356,7 +1375,8 @@ const styles = StyleSheet.create({
   },
 
   studentCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: "#FFFFFF",
+    borderLeftWidth: 6,
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
@@ -1380,7 +1400,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  studentTitleWrap: { flex: 1, gap: 3 },
+  studentRollBadge: {
+    minWidth: 44,
+    height: 44,
+    paddingHorizontal: 6,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  studentRollText: { fontSize: 18, fontWeight: "900" },
+  studentTitleWrap: { flex: 1, minWidth: 0, gap: 3 },
   studentName: {
     fontSize: 16,
     fontWeight: "900",
