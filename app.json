@@ -3,7 +3,7 @@
     "name": "NepaliAttendance",
     "slug": "nepaliattendance",
     "version": "3.3.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "attendanceapp",
     "userInterfaceStyle": "automatic",
